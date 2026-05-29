@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 from genesis.api.routes import router
@@ -50,12 +51,10 @@ app.include_router(router)
 
 @app.get("/")
 async def root():
-    return {
-        "name": "Genesis Engine",
-        "version": "0.1.0",
-        "status": "running",
-        "docs": "/docs",
-    }
+    ui_path = os.path.join(os.path.dirname(__file__), "..", "ui", "index.html")
+    if os.path.isfile(ui_path):
+        return FileResponse(ui_path, media_type="text/html")
+    return {"name": "Genesis Engine", "version": "0.1.0", "status": "running", "docs": "/docs"}
 
 
 @app.get("/health")
