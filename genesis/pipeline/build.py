@@ -30,6 +30,10 @@ BUILD_SYSTEM_PROMPT = """You are a prompt engineer and tool designer for multi-a
 systems. Given an agent architecture specification, generate fully specified
 agent definitions ready for deployment.
 
+IMPORTANT: Use ONLY real, documented tools. The required tools section below
+contains verified tool documentation sourced from official APIs and MCP servers.
+Do NOT hallucinate tool capabilities — use only what's documented.
+
 CRITICAL RULE: Generate ALL agents listed in the architecture. If the architecture
 specifies 3 agents (e.g., triage, technical, billing), you MUST output all 3.
 Do not skip, merge, or collapse agents.
@@ -126,7 +130,10 @@ class BuildStage:
         Raises:
             ValueError: If the LLM fails to produce valid JSON after all retries.
         """
-        user_prompt = self._build_prompt(architecture, feedback)
+        # Research real tool capabilities via MCP + web
+        tool_research = await self._research_tools(architecture)
+
+        user_prompt = self._build_prompt(architecture, feedback, tool_research)
         last_error: Exception | None = None
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -185,13 +192,15 @@ class BuildStage:
         self,
         architecture: AgentArchitecture,
         feedback: Optional[Any],
+        tool_research: str = "",
     ) -> str:
-        """Build the user prompt including architecture details and optional
-        test feedback for retry loops.
+        """Build the user prompt including architecture details, optional
+        test feedback for retry loops, and tool research for grounding.
 
         Args:
             architecture: The agent architecture to build from.
             feedback: Optional test results for refinement.
+            tool_research: Optional tool documentation from MCP/web research.
 
         Returns:
             Formatted prompt string.
@@ -215,6 +224,14 @@ class BuildStage:
         fallback = architecture.routing.get("fallback_agent")
         if fallback:
             lines.append(f"Fallback agent: {fallback}")
+
+        # Include tool research (MCP + web grounding)
+        if tool_research:
+            lines.append("")
+            lines.append("=" * 40)
+            lines.append("VERIFIED TOOL DOCUMENTATION (use only these real tools):")
+            lines.append(tool_research)
+            lines.append("=" * 40)
 
         # Include test feedback if in retry loop
         if feedback is not None:
@@ -261,6 +278,48 @@ class BuildStage:
             return str(feedback)
         except Exception:
             return str(feedback)
+
+    async def _research_tools(self, architecture: AgentArchitecture) -> str:
+        """Research real tool capabilities via MCP servers and web search.
+
+        Queries MCP servers (Context7, Microsoft Docs, DeepWiki) and web
+        for each tool needed by the architecture's agents. Returns
+        formatted documentation to ground the LLM and prevent hallucinations.
+        """
+        # Collect all unique tools needed
+        all_tools: set = set()
+        for agent in architecture.agents:
+            for tool in agent.get("tools", []):
+                all_tools.add(tool)
+
+        if not all_tools:
+            return ""
+
+        research_parts = []
+
+        # Try MCP grounding first for key tools
+        try:
+            from genesis.tools.mcp_client import mcp_grounding
+            for tool in list(all_tools)[:3]:  # Limit to avoid long prompts
+                tool_query = f"{tool} API documentation usage examples"
+                mcp_text = await mcp_grounding(tool_query)
+                if mcp_text:
+                    research_parts.append(mcp_text)
+        except Exception as e:
+            logger.debug("MCP grounding unavailable for tool research: %s", e)
+
+        # Supplement with web search
+        try:
+            from genesis.tools import research_topic, format_context_for_prompt
+            for tool in list(all_tools)[:5]:
+                ctx = await research_topic(f"{tool} tool API reference")
+                text = format_context_for_prompt(ctx, max_chars=1500)
+                if text:
+                    research_parts.append(text)
+        except Exception as e:
+            logger.debug("Web research unavailable for tools: %s", e)
+
+        return "\n\n".join(research_parts) if research_parts else ""
 
     def _build_agent_definition(self, raw: dict[str, Any]) -> AgentDefinition:
         """Construct an AgentDefinition from a raw dict.

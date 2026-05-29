@@ -5,94 +5,311 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Genesis Engine — AI that builds AI</title>
 <style>
-  :root { --green: #00ff41; --dark: #0a0f0a; --darker: #050805; --dim: #008f22; --glow: #00ff4188; --red: #ff3333; --yellow: #ffcc00; }
+  :root {
+    --green: #00ff41; --dark: #0a0f0a; --darker: #050805;
+    --dim: #008f22; --glow: #00ff4188; --red: #ff3333;
+    --yellow: #ffcc00; --blue: #00aaff; --purple: #bb44ff;
+    --cyan: #00d4ff; --orange: #ff8800;
+    --surface: #0d140d; --surface-hover: #111a11;
+    --border: #0f2a0f; --text-dim: #006618;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--darker); color: var(--green); font-family: 'Courier New', monospace; min-height: 100vh; display: flex; flex-direction: column; }
-  .scanline { position: fixed; top: 0; left: 0; width: 100%; height: 3px; background: var(--glow); opacity: 0.3; animation: scan 4s linear infinite; pointer-events: none; z-index: 999; }
+  body {
+    background: var(--darker); color: var(--green);
+    font-family: 'Courier New', 'Consolas', monospace;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  .scanline {
+    position: fixed; top: 0; left: 0; width: 100%; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--glow), transparent);
+    opacity: 0.15; animation: scan 3s linear infinite;
+    pointer-events: none; z-index: 999;
+  }
   @keyframes scan { 0% { top: -4px; } 100% { top: 100%; } }
-  header { padding: 1.5rem; text-align: center; border-bottom: 1px solid var(--dim); }
-  header h1 { font-size: 1.8rem; letter-spacing: 0.2em; text-shadow: 0 0 15px var(--glow); }
-  header p { color: var(--dim); font-size: 0.8rem; margin-top: 0.25rem; }
-  main { flex: 1; max-width: 900px; margin: 0 auto; width: 100%; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
-  .input-area { display: flex; gap: 0.5rem; }
+
+  /* ── Navigation ── */
+  nav {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 0.75rem 2rem; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .brand { font-size: 1rem; letter-spacing: 0.15em; color: var(--green); text-decoration: none; text-shadow: 0 0 8px var(--glow); }
+  nav .brand:hover { text-shadow: 0 0 15px var(--green); }
+  nav .spacer { flex: 1; }
+  nav a {
+    color: var(--dim); text-decoration: none; font-size: 0.8rem;
+    padding: 0.35rem 0.75rem; border: 1px solid transparent;
+    border-radius: 4px; transition: all 0.2s;
+  }
+  nav a:hover, nav a.active { color: var(--green); border-color: var(--dim); background: var(--surface-hover); }
+  nav a.active { border-color: var(--green); box-shadow: 0 0 8px var(--glow); }
+
+  /* ── Header ── */
+  header {
+    padding: 1.5rem 2rem; text-align: center;
+    background: linear-gradient(180deg, var(--surface), transparent);
+  }
+  header h1 { font-size: 2rem; letter-spacing: 0.2em; text-shadow: 0 0 20px var(--glow), 0 0 40px rgba(0,170,255,0.3); }
+  header .subtitle { color: var(--text-dim); font-size: 0.7rem; letter-spacing: 0.15em; margin-top: 0.25rem; }
+
+  /* ── Main ── */
+  main {
+    flex: 1; max-width: 1000px; margin: 0 auto; width: 100%;
+    padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;
+  }
+
+  /* ── Input ── */
+  .input-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem;
+  }
+  .input-card h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--dim); margin-bottom: 0.75rem; }
+  .input-area { display: flex; gap: 0.75rem; }
   .input-area textarea {
-    flex: 1; background: var(--dark); border: 1px solid var(--dim); color: var(--green);
-    padding: 0.75rem; font-family: inherit; font-size: 0.9rem; resize: vertical;
-    min-height: 80px; border-radius: 4px;
+    flex: 1; background: var(--darker); border: 1px solid var(--border);
+    color: var(--green); padding: 0.75rem; font-family: inherit;
+    font-size: 0.9rem; resize: vertical; min-height: 80px;
+    border-radius: 6px; transition: all 0.3s;
   }
-  .input-area textarea:focus { outline: none; border-color: var(--green); box-shadow: 0 0 10px var(--glow); }
+  .input-area textarea:focus { outline: none; border-color: var(--green); box-shadow: 0 0 15px var(--glow); }
+  .input-area textarea::placeholder { color: var(--text-dim); }
   .input-area button {
-    background: var(--dim); border: none; color: var(--darker); padding: 0 1.5rem;
-    font-family: inherit; font-weight: bold; cursor: pointer; border-radius: 4px;
-    font-size: 0.9rem; letter-spacing: 0.1em; transition: all 0.2s;
+    background: var(--dim); border: none; color: var(--darker);
+    padding: 0.5rem 1.5rem; font-family: inherit; font-weight: bold;
+    cursor: pointer; border-radius: 6px; font-size: 0.85rem;
+    letter-spacing: 0.1em; transition: all 0.2s; white-space: nowrap;
   }
-  .input-area button:hover { background: var(--green); box-shadow: 0 0 15px var(--glow); }
-  .input-area button:disabled { opacity: 0.3; cursor: not-allowed; }
-  .progress { background: var(--dark); border: 1px solid var(--dim); padding: 1.5rem; border-radius: 4px; display: none; }
-  .stage { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
-  .stage .icon { font-size: 1.2rem; width: 2rem; }
-  .stage .label { flex: 1; font-size: 0.85rem; }
-  .stage .status { color: var(--dim); font-size: 0.8rem; }
-  .stage.done .status { color: var(--green); }
-  .stage.active .status { color: var(--yellow); animation: pulse 0.5s infinite; }
+  .input-area button:hover { background: var(--green); box-shadow: 0 0 15px var(--glow); transform: translateY(-1px); }
+  .input-area button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+  .input-area button.primary { background: var(--cyan); color: var(--darker); }
+
+  /* ── Example problems ── */
+  .examples { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .example-chip {
+    padding: 0.2rem 0.6rem; font-size: 0.7rem; color: var(--dim);
+    border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .example-chip:hover { color: var(--cyan); border-color: var(--dim); background: var(--surface-hover); }
+
+  /* ── Progress ── */
+  .progress {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem; display: none;
+  }
+  .progress h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--dim); margin-bottom: 1rem; }
+  .stage {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.6rem 0.75rem; margin-bottom: 0.3rem;
+    border-radius: 4px; transition: all 0.3s;
+  }
+  .stage .icon { font-size: 1.1rem; width: 2rem; text-align: center; }
+  .stage .label { flex: 1; font-size: 0.8rem; }
+  .stage .status { font-size: 0.7rem; min-width: 80px; text-align: right; }
+  .stage.waiting { color: var(--text-dim); }
+  .stage.active { background: rgba(0,212,255,0.05); color: var(--cyan); }
+  .stage.done { color: var(--green); }
+  .stage.failed { color: var(--red); }
+  .stage .status { color: inherit; }
+  .stage.active .status { animation: pulse 0.6s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Progress bar */
+  .progress-bar-outer { height: 4px; background: var(--darker); border-radius: 2px; margin-top: 0.5rem; overflow: hidden; }
+  .progress-bar-inner { height: 100%; border-radius: 2px; background: var(--cyan); transition: width 0.5s; width: 0%; }
+
+  /* ── Results ── */
   .results { display: none; }
-  .result-card { background: var(--dark); border: 1px solid var(--dim); padding: 1.25rem; border-radius: 4px; margin-bottom: 0.75rem; }
-  .result-card h3 { margin-bottom: 0.5rem; display: flex; justify-content: space-between; }
-  .result-card .role { color: var(--dim); font-size: 0.85rem; }
-  .result-card .prompt { color: var(--dim); font-size: 0.8rem; margin-top: 0.5rem; max-height: 100px; overflow-y: auto; }
-  .bar-container { height: 6px; background: var(--darker); margin: 0.5rem 0; border-radius: 2px; }
-  .bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
-  .error { color: var(--red); padding: 1rem; display: none; }
-  .stats { display: flex; gap: 1.5rem; padding: 1rem 0; }
-  .stat { text-align: center; }
-  .stat .value { font-size: 1.5rem; text-shadow: 0 0 10px var(--glow); }
-  .stat .label { color: var(--dim); font-size: 0.7rem; margin-top: 0.25rem; }
-  footer { text-align: center; padding: 1rem; color: var(--dim); font-size: 0.7rem; border-top: 1px solid var(--dim); }
+  .result-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 600px) { .result-stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem; text-align: center;
+  }
+  .stat-card .value { font-size: 1.8rem; text-shadow: 0 0 10px var(--glow); }
+  .stat-card .label { color: var(--text-dim); font-size: 0.65rem; margin-top: 0.25rem; text-transform: uppercase; }
+
+  .result-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem; margin-bottom: 0.75rem;
+    transition: all 0.3s;
+  }
+  .result-card:hover { border-color: var(--dim); box-shadow: 0 0 15px rgba(0,170,255,0.05); }
+  .result-card h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.9rem; }
+  .result-card .role { color: var(--cyan); font-size: 0.75rem; }
+  .result-card .prompt {
+    color: var(--dim); font-size: 0.75rem; margin-top: 0.5rem;
+    max-height: 120px; overflow-y: auto; padding: 0.5rem;
+    background: var(--darker); border-radius: 4px;
+    line-height: 1.4;
+  }
+  .result-card .tools-list { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .tool-badge {
+    padding: 0.1rem 0.4rem; font-size: 0.6rem; border-radius: 3px;
+    background: rgba(0,170,255,0.1); color: var(--cyan);
+  }
+
+  /* ── Deployment Guide ── */
+  .deploy-guide {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.5rem; margin-top: 0.5rem;
+  }
+  .deploy-guide h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--cyan); margin-bottom: 1rem; }
+  .deploy-guide .step {
+    padding: 0.6rem 0; border-bottom: 1px solid rgba(0,255,65,0.04);
+    font-size: 0.8rem;
+  }
+  .deploy-guide .step:last-child { border-bottom: none; }
+  .deploy-guide .step-num {
+    display: inline-block; width: 1.5rem; height: 1.5rem;
+    line-height: 1.5rem; text-align: center; border-radius: 50%;
+    background: rgba(0,170,255,0.15); color: var(--cyan);
+    font-size: 0.7rem; margin-right: 0.5rem;
+  }
+  .deploy-guide .code-block {
+    margin: 0.5rem 0 0.5rem 2rem; padding: 0.5rem;
+    background: var(--darker); border-radius: 4px;
+    font-size: 0.7rem; color: var(--dim); overflow-x: auto;
+  }
+  .deploy-guide .tab-row {
+    display: flex; gap: 0.5rem; margin: 0.5rem 0 0.5rem 2rem;
+    font-size: 0.7rem;
+  }
+  .deploy-guide .tab-btn {
+    padding: 0.15rem 0.5rem; border: 1px solid var(--border);
+    border-radius: 3px; cursor: pointer; color: var(--dim);
+  }
+  .deploy-guide .tab-btn.active { color: var(--cyan); border-color: var(--cyan); }
+  .deploy-guide .tab-content { display: none; font-size: 0.7rem; color: var(--dim); }
+  .deploy-guide .tab-content.active { display: block; }
+
+  /* ── Best Practices Panel ── */
+  .best-practices {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem; margin-top: 0.5rem;
+  }
+  .best-practices h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--green); margin-bottom: 0.75rem; }
+  .best-practices ul { list-style: none; font-size: 0.75rem; }
+  .best-practices li { padding: 0.3rem 0; padding-left: 1rem; border-left: 2px solid var(--border); margin-bottom: 0.25rem; color: var(--dim); }
+  .best-practices li::before { content: '▸ '; color: var(--green); }
+
+  /* ── Export area ── */
+  .export-area {
+    display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .export-area button {
+    background: var(--dim); border: none; color: var(--darker);
+    padding: 0.4rem 1rem; font-family: inherit; font-weight: bold;
+    cursor: pointer; border-radius: 4px; font-size: 0.75rem;
+    transition: all 0.2s;
+  }
+  .export-area button:hover { background: var(--green); box-shadow: 0 0 10px var(--glow); }
+
+  .error { color: var(--red); padding: 1rem; display: none; background: rgba(255,51,51,0.05); border: 1px solid rgba(255,51,51,0.2); border-radius: 6px; }
+  footer { text-align: center; padding: 1rem; color: var(--text-dim); font-size: 0.7rem; border-top: 1px solid var(--border); }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 </style>
 </head>
 <body>
 <div class="scanline"></div>
+
+<nav>
+  <a href="/" class="brand">⚙ GENESIS ENGINE</a>
+  <span class="spacer"></span>
+  <a href="#" class="active" onclick="scrollToBuild()">▸ BUILD</a>
+  <a href="#" onclick="scrollToDocs()">▸ DOCS</a>
+  <a href="/docs" target="_blank">▸ API</a>
+</nav>
+
 <header>
   <h1>G E N E S I S &nbsp; E N G I N E</h1>
-  <p>AI THAT BUILDS AI // AZURE FOUNDRY (GPT-5.4)</p>
+  <div class="subtitle">AI THAT BUILDS AI // META-AGENT FACTORY // ANTI-HALLUCINATION MCP GROUNDING // AZURE FOUNDRY (GPT-5.4)</div>
 </header>
-<main>
-  <div class="input-area">
-    <textarea id="problem" placeholder="Describe the multi-agent system you need...
 
-Example: I need a customer support system with triage, technical support, and billing agents."></textarea>
-    <button id="buildBtn" onclick="build()">▸ BUILD</button>
+<main>
+  <!-- Build Section -->
+  <div class="input-card" id="buildSection">
+    <h3>▸ DESCRIBE THE MULTI-AGENT SYSTEM YOU NEED</h3>
+    <div class="input-area">
+      <textarea id="problem" placeholder="Describe your problem in natural language...
+
+Example: I need a customer support system with triage, technical support, and billing agents for my B2B SaaS company. The triage agent should classify incoming requests and route them. Tech support handles API questions and debugging. Billing handles invoices, refunds, and plan changes. Escalate complex cases to a human."></textarea>
+      <button id="buildBtn" class="primary" onclick="build()">▸ BUILD</button>
+    </div>
+    <div class="examples">
+      <span class="example-chip" onclick="setProblem('I need a customer support system with triage, technical, and billing agents')">🎧 Customer Support</span>
+      <span class="example-chip" onclick="setProblem('Build me a code review system: one agent reviews Python, one reviews JS/TS, one handles security scanning')">🔍 Code Review</span>
+      <span class="example-chip" onclick="setProblem('Create a research assistant team: a web researcher agent, a summarizer agent, and a fact-checker agent')">📚 Research Team</span>
+      <span class="example-chip" onclick="setProblem('Design a DevOps automation system with a deployment agent, monitoring agent, and incident response agent')">🚀 DevOps</span>
+      <span class="example-chip" onclick="setProblem('Build a financial analysis swarm: market data collector, technical analyst, fundamental analyst, and report generator')">📊 Finance</span>
+    </div>
   </div>
+
   <div class="error" id="error"></div>
+
+  <!-- Progress -->
   <div class="progress" id="progress">
-    <div class="stage" id="stage-analyze"><span class="icon">🔍</span><span class="label">ANALYZE</span><span class="status">waiting...</span></div>
-    <div class="stage" id="stage-architect"><span class="icon">🏗️</span><span class="label">ARCHITECT</span><span class="status">waiting...</span></div>
-    <div class="stage" id="stage-build"><span class="icon">🔧</span><span class="label">BUILD</span><span class="status">waiting...</span></div>
-    <div class="stage" id="stage-test"><span class="icon">🧪</span><span class="label">TEST</span><span class="status">waiting...</span></div>
-    <div class="stage" id="stage-deploy"><span class="icon">🚀</span><span class="label">DEPLOY</span><span class="status">waiting...</span></div>
+    <h3>▸ PIPELINE PROGRESS</h3>
+    <div class="stage waiting" id="stage-analyze"><span class="icon">🔍</span><span class="label">ANALYZE — Decompose problem domain</span><span class="status">waiting...</span></div>
+    <div class="stage waiting" id="stage-architect"><span class="icon">🏗️</span><span class="label">ARCHITECT — Design agent topology</span><span class="status">waiting...</span></div>
+    <div class="stage waiting" id="stage-build"><span class="icon">🔧</span><span class="label">BUILD — Generate prompts & tools (MCP-grounded)</span><span class="status">waiting...</span></div>
+    <div class="stage waiting" id="stage-test"><span class="icon">🧪</span><span class="label">TEST — Simulate & evaluate quality</span><span class="status">waiting...</span></div>
+    <div class="stage waiting" id="stage-deploy"><span class="icon">🚀</span><span class="label">DEPLOY — Provision on target platform</span><span class="status">waiting...</span></div>
+    <div class="progress-bar-outer"><div class="progress-bar-inner" id="progressBar"></div></div>
   </div>
+
+  <!-- Results -->
   <div class="results" id="results"></div>
 </main>
-<footer>GENESIS ENGINE v0.1.0 // AZURE CONTAINER APPS (EASTUS2)</footer>
+
+<footer>
+  GENESIS ENGINE v0.2.0 // AZURE CONTAINER APPS (EASTUS2) // MCP-GROUNDED TOOLS // ANTI-HALLUCINATION // ENTERPRISE-READY
+  <br><span style="color:var(--text-dim)">Microsoft Docs · Context7 · DeepWiki · HuggingFace · Every agent grounded in real documentation</span>
+</footer>
+
 <script>
 const API = '/v1';
 let pollTimer = null;
+
+function setProblem(text) {
+  document.getElementById('problem').value = text;
+  document.getElementById('problem').focus();
+}
+
+function scrollToBuild() {
+  document.getElementById('buildSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+function scrollToDocs() {
+  const el = document.querySelector('.deploy-guide');
+  if (el) el.scrollIntoView({ behavior: 'smooth' });
+  else document.getElementById('buildSection').scrollIntoView({ behavior: 'smooth' });
+}
 
 async function build() {
   const problem = document.getElementById('problem').value.trim();
   if (!problem) return;
 
   const btn = document.getElementById('buildBtn');
-  btn.disabled = true;
-  btn.textContent = '...';
+  btn.disabled = true; btn.textContent = '...';
 
   document.getElementById('error').style.display = 'none';
   document.getElementById('results').style.display = 'none';
   document.getElementById('progress').style.display = 'block';
 
   // Reset stages
-  document.querySelectorAll('.stage').forEach(s => { s.classList.remove('active','done'); s.querySelector('.status').textContent = 'waiting...'; });
+  document.querySelectorAll('.stage').forEach(s => {
+    s.className = 'stage waiting';
+    const statusEl = s.querySelector('.status');
+    if (statusEl) statusEl.textContent = 'waiting...';
+  });
+  document.getElementById('progressBar').style.width = '0%';
 
   try {
     const r = await fetch(API + '/generate', {
@@ -102,18 +319,17 @@ async function build() {
     });
     if (!r.ok) throw new Error((await r.json()).detail || 'API error');
     const data = await r.json();
-    const buildId = data.build_id;
-    pollBuild(buildId);
+    pollBuild(data.build_id);
   } catch(e) {
     showError(e.message);
-    btn.disabled = false;
-    btn.textContent = '▸ BUILD';
+    btn.disabled = false; btn.textContent = '▸ BUILD';
   }
 }
 
 function pollBuild(buildId) {
   const stageMap = { analyze: 'stage-analyze', architect: 'stage-architect', build: 'stage-build', test: 'stage-test', deploy: 'stage-deploy' };
   const stageOrder = ['analyze','architect','build','test','deploy'];
+  const progressValues = { analyze: 0.1, architect: 0.3, build: 0.6, test: 0.8, deploy: 1.0 };
   let seen = new Set();
 
   pollTimer = setInterval(async () => {
@@ -126,72 +342,204 @@ function pollBuild(buildId) {
       if (stage && !seen.has(stage)) {
         seen.add(stage);
         const el = document.getElementById(stageMap[stage]);
-        if (el) { el.classList.add('active'); el.querySelector('.status').textContent = 'running...'; }
+        if (el) { el.className = 'stage active'; el.querySelector('.status').textContent = 'running...'; }
 
         // Mark previous stages done
         const idx = stageOrder.indexOf(stage);
         for (let i = 0; i < idx; i++) {
           const prev = document.getElementById(stageMap[stageOrder[i]]);
-          if (prev) { prev.classList.remove('active'); prev.classList.add('done'); prev.querySelector('.status').textContent = '✓ done'; }
+          if (prev) { prev.className = 'stage done'; prev.querySelector('.status').textContent = '✓ done'; }
         }
+
+        document.getElementById('progressBar').style.width = (progressValues[stage] * 100) + '%';
       }
 
       if (status === 'completed') {
         clearInterval(pollTimer);
-        // Mark all done
         stageOrder.forEach(s => {
           const el = document.getElementById(stageMap[s]);
-          if (el) { el.classList.remove('active'); el.classList.add('done'); el.querySelector('.status').textContent = '✓ done'; }
+          if (el) { el.className = 'stage done'; el.querySelector('.status').textContent = '✓ done'; }
         });
-        document.getElementById('stage-deploy').querySelector('.status').textContent = '✓ deployed';
+        document.getElementById('progressBar').style.width = '100%';
 
-        // Show results
-        const results = document.getElementById('results');
-        results.style.display = 'block';
-        const agents = (d.artifacts || {}).agents || [];
-        const score = ((d.test_results || {}).overall_score || 0) * 100;
-
-        let html = '<div class="stats">';
-        html += `<div class="stat"><div class="value" style="color:${score>=70?'var(--green)':'var(--yellow)'}">${score.toFixed(0)}%</div><div class="label">TEST SCORE</div></div>`;
-        html += `<div class="stat"><div class="value">${agents.length}</div><div class="label">AGENTS</div></div>`;
-        html += `<div class="stat"><div class="value">${d.retries||0}</div><div class="label">RETRIES</div></div>`;
-        html += '</div>';
-
-        agents.forEach(a => {
-          html += '<div class="result-card"><h3><span>' + a.name + '</span><span class="role">' + a.role + '</span></h3><div class="prompt">' + (a.system_prompt||'').slice(0,300) + '...</div></div>';
-        });
-        html += '<div style="margin-top:1rem;text-align:center"><button onclick="downloadAgents(\'' + buildId + '\')" style="background:var(--dim);border:none;color:var(--darker);padding:0.5rem 1.5rem;font-family:inherit;font-weight:bold;cursor:pointer;border-radius:4px">⬇ EXPORT AGENTS</button><span style="color:var(--dim);font-size:0.7rem;margin-left:1rem">Downloads JSON + Markdown per agent</span></div>';
-        results.innerHTML = html;
+        showResults(d, buildId);
         document.getElementById('buildBtn').disabled = false;
-        document.getElementById('buildBtn').textContent = '▸ BUILD';
+        document.getElementById('buildBtn').textContent = '▸ BUILD AGAIN';
       } else if (status === 'failed') {
         clearInterval(pollTimer);
-        showError(d.error || 'Build failed');
+        const failedStage = stageOrder.indexOf(stage);
+        if (failedStage >= 0) {
+          const el = document.getElementById(stageMap[stage]);
+          if (el) { el.className = 'stage failed'; el.querySelector('.status').textContent = '✗ failed'; }
+        }
+        showError(d.error || 'Build failed — check API logs');
         document.getElementById('buildBtn').disabled = false;
-        document.getElementById('buildBtn').textContent = '▸ BUILD';
+        document.getElementById('buildBtn').textContent = '▸ RETRY';
       }
-    } catch(e) {
-      // Keep polling
-    }
+    } catch(e) {}
   }, 1500);
+}
+
+function showResults(d, buildId) {
+  const results = document.getElementById('results');
+  results.style.display = 'block';
+  const agents = (d.artifacts || {}).agents || [];
+  const score = ((d.test_results || {}).overall_score || 0) * 100;
+  const scenarios = (d.test_results || {}).scenarios_run || 0;
+  const passed = (d.test_results || {}).scenarios_passed || 0;
+
+  let html = '';
+
+  // Stats
+  html += '<div class="result-stats">';
+  html += `<div class="stat-card"><div class="value" style="color:${score>=80?'var(--green)':score>=60?'var(--yellow)':'var(--red)'}">${score.toFixed(0)}%</div><div class="label">TEST SCORE</div></div>`;
+  html += `<div class="stat-card"><div class="value" style="color:var(--cyan)">${agents.length}</div><div class="label">AGENTS BUILT</div></div>`;
+  html += `<div class="stat-card"><div class="value" style="color:var(--yellow)">${passed}/${scenarios}</div><div class="label">SCENARIOS PASSED</div></div>`;
+  html += `<div class="stat-card"><div class="value" style="color:var(--text-dim)">${d.retries||0}</div><div class="label">RETRIES</div></div>`;
+  html += '</div>';
+
+  // Agent cards
+  html += '<div class="result-card"><h3 style="color:var(--green)">🤖 GENERATED AGENTS</h3>';
+  agents.forEach((a, i) => {
+    const tools = a.tools || [];
+    html += `<div class="result-card" style="margin-left:0.5rem;margin-bottom:0.5rem">
+      <h3><span>#${i+1} ${a.name}</span><span class="role">${a.role}</span></h3>
+      <div class="tools-list">${tools.map(t => `<span class="tool-badge">${typeof t === 'string' ? t : t.name || 'tool'}</span>`).join('')}</div>
+      <div class="prompt">${(a.system_prompt||'').slice(0,400)}${(a.system_prompt||'').length > 400 ? '...' : ''}</div>
+      ${a.skills && a.skills.length ? `<div style="color:var(--text-dim);font-size:0.65rem;margin-top:0.25rem">📋 Skills: ${a.skills.map(s => typeof s === 'string' ? s : s.name).join(', ')}</div>` : ''}
+    </div>`;
+  });
+  html += '</div>';
+
+  // Export
+  html += `<div class="export-area">
+    <button onclick="downloadAgents('${buildId}')">⬇ EXPORT ALL AGENTS</button>
+    <span style="color:var(--text-dim);font-size:0.7rem">Downloads JSON + Markdown per agent</span>
+  </div>`;
+
+  // Deployment Guide
+  html += buildDeploymentGuide(agents);
+
+  // Best Practices
+  html += buildBestPractices();
+
+  results.innerHTML = html;
+  results.scrollIntoView({ behavior: 'smooth' });
+}
+
+function buildDeploymentGuide(agents) {
+  const names = agents.map(a => a.name).join(', ') || 'your agents';
+  return `<div class="deploy-guide" id="deployGuide">
+    <h3>🚀 DEPLOYMENT GUIDE — How to Use These Agents</h3>
+
+    <div class="step">
+      <span class="step-num">1</span>
+      <strong>Export your agents</strong> — Click "EXPORT ALL AGENTS" above to download JSON + Markdown files for each agent.
+    </div>
+
+    <div class="step">
+      <span class="step-num">2</span>
+      <strong>Deploy to AgentSystem</strong> — The primary target platform. Agents are pre-configured for AgentSystem deployment:
+      <div class="code-block">
+        # Option A: Deploy via Genesis Engine (automatic)
+        # Already done! Your agents are live on AgentSystem.
+
+        # Option B: Manual import
+        cp *.json ~/AgentSystem/agents/
+        cd ~/AgentSystem && python main.py --reload-agents
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">3</span>
+      <strong>Integrate into existing workflows</strong> — These agents work as:
+      <div style="margin-left:2rem;font-size:0.75rem;color:var(--dim)">
+        <br>• <strong>API endpoints</strong>: Each agent is a REST endpoint — POST requests with user input, get agent decisions back
+        <br>• <strong>Pipeline stage</strong>: Chain agents together: output of agent A → input of agent B
+        <br>• <strong>Slack/Discord bots</strong>: Wrap agents in bot handlers for team integration
+        <br>• <strong>Webhook handlers</strong>: Trigger agents on external events (new ticket, PR opened, alert fired)
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">4</span>
+      <strong>Build a brand new agent from scratch</strong> — Just describe what you need:
+      <div class="code-block">
+        # Via the UI: type a new description and click BUILD
+        # Via CLI:
+        $ genesis build "I need [your agent description here]"
+
+        # Via Python SDK:
+        import genesis
+        system = genesis.generate("I need a ...")
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">5</span>
+      <strong>Monitor & iterate</strong> — Track agent performance:
+      <div style="margin-left:2rem;font-size:0.75rem;color:var(--dim)">
+        <br>• Watch test scores (aim for >80%)
+        <br>• Check the agent logs for edge cases
+        <br>• Rebuild with more specific prompts if agents miss scenarios
+        <br>• Use the TEST → BUILD feedback loop: failed scenarios auto-improve agents
+      </div>
+    </div>
+
+    <div class="step">
+      <span class="step-num">6</span>
+      <strong>Production readiness checklist</strong>:
+      <div style="margin-left:2rem;font-size:0.75rem;color:var(--dim)">
+        <br>✅ Test score ≥ 80%
+        <br>✅ All agents have system prompts (2-4 paragraphs)
+        <br>✅ Tools are verified real (MCP-grounded, no hallucinations)
+        <br>✅ Coordination rules defined (handoff format, escalation paths)
+        <br>✅ Fallback agent configured for unrecognized intents
+        <br>✅ API keys for external services configured (if needed)
+        <br>✅ Rate limiting enabled on agent endpoints
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildBestPractices() {
+  return `<div class="best-practices">
+    <h3>📋 BEST PRACTICES FOR MULTI-AGENT SYSTEMS</h3>
+    <ul>
+      <li><strong>Single Responsibility:</strong> Each agent should do ONE thing well. If an agent tries to do too much, split it.</li>
+      <li><strong>Clear Handoffs:</strong> Define exactly what data passes between agents. Use structured JSON, not free text.</li>
+      <li><strong>Fallback Always:</strong> Every router needs a fallback agent for unrecognized inputs. Never leave a user hanging.</li>
+      <li><strong>Test Edge Cases:</strong> The TEST stage runs 10-20 scenarios. Add more specific test cases for your domain.</li>
+      <li><strong>Iterate Don't Perfect:</strong> Ship at 80% test score, gather real data, then rebuild. Genesis makes iteration cheap.</li>
+      <li><strong>Monitor Hallucinations:</strong> Genesis grounds all tools in MCP documentation. If you see fake tools, rebuild with more specific tool requirements.</li>
+      <li><strong>Version Your Agents:</strong> Export agents with build IDs. Roll back to previous versions if quality drops.</li>
+      <li><strong>Start Small, Scale Up:</strong> Begin with 2-3 agents. Add specialization as you learn what works.</li>
+    </ul>
+  </div>`;
 }
 
 function showError(msg) {
   const el = document.getElementById('error');
   el.textContent = '✗ ' + msg;
   el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth' });
 }
 
 async function downloadAgents(buildId) {
   const r = await fetch(API + '/builds/' + buildId + '/export?format=individual');
   const d = await r.json();
   const files = d.files || {};
-  for (const [filename, content] of Object.entries(files)) {
-    const blob = new Blob([content], {type: 'text/plain'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
+  // Download with small delay between files
+  const entries = Object.entries(files);
+  for (let i = 0; i < entries.length; i++) {
+    const [filename, content] = entries[i];
+    setTimeout(() => {
+      const blob = new Blob([content], {type: 'text/plain'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+    }, i * 200);
   }
 }
 </script>

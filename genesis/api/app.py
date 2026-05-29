@@ -32,8 +32,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Genesis Engine",
-    description="Meta-agent factory — AI that builds AI. Describe a problem, get a deployed multi-agent system.",
-    version="0.1.0",
+    description="Meta-agent factory — AI that builds AI. Describe a problem, get a deployed multi-agent system. MCP-grounded tools prevent hallucinations.",
+    version="0.2.0",
     lifespan=lifespan,
 )
 

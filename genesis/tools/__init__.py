@@ -2,6 +2,8 @@
 
 Provides real-time web search and content extraction to ground
 LLM outputs in actual data. No hallucinations. No lying.
+
+v0.2.0 — Added MCP server grounding for agent tool generation
 """
 
 from __future__ import annotations
@@ -36,10 +38,7 @@ class WebContext:
 
 
 async def web_search(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search the web using DuckDuckGo (free, no API key).
-
-    Returns grounded, real-time results to feed into LLM prompts.
-    """
+    """Search the web using DuckDuckGo (free, no API key)."""
     results = []
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
@@ -62,9 +61,7 @@ async def web_search(query: str, max_results: int = 5) -> List[SearchResult]:
 
                 if title and link:
                     results.append(SearchResult(
-                        title=title,
-                        url=link,
-                        snippet=snippet,
+                        title=title, url=link, snippet=snippet,
                     ))
 
         logger.info("Web search '%s': %d results", query[:50], len(results))
@@ -76,25 +73,19 @@ async def web_search(query: str, max_results: int = 5) -> List[SearchResult]:
 
 async def web_fetch(url: str, max_chars: int = 3000) -> str:
     """Fetch and extract clean text content from a URL."""
-    # Normalize protocol-relative URLs from DuckDuckGo
     if url.startswith("//"):
         url = "https:" + url
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (compatible; GenesisEngine/1.0)"
-            }
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; GenesisEngine/1.0)"}
             r = await client.get(url, headers=headers)
             r.raise_for_status()
 
             soup = BeautifulSoup(r.text, "html.parser")
-
-            # Remove noise
             for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
                 tag.decompose()
 
             text = soup.get_text(separator="\n", strip=True)
-            # Collapse whitespace
             text = re.sub(r"\n{3,}", "\n\n", text)
             text = re.sub(r"[ \t]{2,}", " ", text)
 
@@ -105,19 +96,13 @@ async def web_fetch(url: str, max_chars: int = 3000) -> str:
 
 
 async def research_topic(query: str, fetch_depth: int = 2) -> WebContext:
-    """Research a topic: search + fetch top results for deep context.
-
-    This is the main entry point for grounding LLM prompts.
-    Returns a WebContext with search results AND fetched content.
-    """
+    """Research a topic: search + fetch top results for deep context."""
     context = WebContext(query=query)
 
-    # Step 1: Search
     context.results = await web_search(query, max_results=5)
     if not context.results:
         return context
 
-    # Step 2: Fetch top N results for deep context
     tasks = [web_fetch(r.url) for r in context.results[:fetch_depth]]
     contents = await asyncio.gather(*tasks)
     context.fetched_content = [c for c in contents if c]
@@ -139,7 +124,6 @@ def format_context_for_prompt(context: WebContext, max_chars: int = 3000) -> str
             lines.append(f"    {result.snippet[:200]}")
         lines.append("")
 
-    # Add fetched content
     if context.fetched_content:
         lines.append("## Deep Context (fetched pages)")
         for i, content in enumerate(context.fetched_content[:2]):
@@ -148,3 +132,13 @@ def format_context_for_prompt(context: WebContext, max_chars: int = 3000) -> str
             lines.append("")
 
     return "\n".join(lines)
+
+
+__all__ = [
+    "SearchResult",
+    "WebContext",
+    "web_search",
+    "web_fetch",
+    "research_topic",
+    "format_context_for_prompt",
+]
