@@ -140,7 +140,7 @@ class BuildStage:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=0.5,
-                    max_tokens=8192,
+                    max_tokens=16384,  # Need more tokens for multi-agent JSON
                     response_format={"type": "json_object"},
                 )
                 data = self._parse_json(response.content)
@@ -310,7 +310,7 @@ class BuildStage:
 
     @staticmethod
     def _parse_json(content: str) -> Any:
-        """Parse JSON from LLM response, stripping markdown fences if present."""
+        """Parse JSON from LLM response, repairing truncation if needed."""
         text = content.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -319,4 +319,36 @@ class BuildStage:
             if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            # Try to repair truncated JSON (common with large multi-agent outputs)
+            logger.warning("JSON parse failed at char %d, attempting repair", e.pos)
+            repaired = _repair_truncated_json(text)
+            if repaired is not None:
+                logger.info("JSON repaired successfully")
+                return repaired
+            raise
+
+
+def _repair_truncated_json(text: str):
+    """Attempt to repair truncated JSON by closing unclosed braces/brackets."""
+    import json as _json
+    braces = brackets = 0
+    in_string = escape = False
+    for ch in text:
+        if escape: escape = False; continue
+        if ch == "\\": escape = True; continue
+        if ch == '"' and not escape: in_string = not in_string; continue
+        if in_string: continue
+        if ch == "{": braces += 1
+        elif ch == "}": braces -= 1
+        elif ch == "[": brackets += 1
+        elif ch == "]": brackets -= 1
+    repair = text.rstrip().rstrip(",")
+    repair += "]" * max(0, brackets)
+    repair += "}" * max(0, braces)
+    try:
+        return _json.loads(repair)
+    except _json.JSONDecodeError:
+        return None

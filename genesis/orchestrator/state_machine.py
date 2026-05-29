@@ -19,6 +19,7 @@ from genesis.pipeline.analyze import AnalyzeStage
 from genesis.pipeline.architect import ArchitectStage
 from genesis.pipeline.build import BuildStage as BuildPipelineStage
 from genesis.pipeline.test import TestStage as TestPipelineStage
+from genesis.pipeline.verify import verify_agents
 from genesis.pipeline.deploy import DeployStage
 from genesis.storage.repository import ProjectRepository, BuildRepository
 
@@ -134,6 +135,15 @@ class Orchestrator:
             artifacts["agents"] = [a.model_dump() for a in agents]
             build.test_results = test_results.model_dump()
             build.retries = retries
+
+            # --- Verification: double-check agent quality ---
+            verification = await verify_agents(
+                self.llm,
+                artifacts["agents"],
+                {"topology": architecture.topology},
+            )
+            artifacts["verification"] = verification
+            logger.info("Verification complete — score=%.2f", verification.get("score", 0))
 
             # --- Stage 5: DEPLOY ---
             deployment = await self._run_deploy(build, agents)
