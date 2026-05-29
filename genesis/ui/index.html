@@ -158,11 +158,9 @@ function pollBuild(buildId) {
         html += '</div>';
 
         agents.forEach(a => {
-          html += `<div class="result-card">
-            <h3><span>${a.name}</span><span class="role">${a.role}</span></h3>
-            <div class="prompt">${(a.system_prompt||'').slice(0,300)}...</div>
-          </div>`;
+          html += '<div class="result-card"><h3><span>' + a.name + '</span><span class="role">' + a.role + '</span></h3><div class="prompt">' + (a.system_prompt||'').slice(0,300) + '...</div></div>';
         });
+        html += '<div style="margin-top:1rem;text-align:center"><button onclick="downloadAgents(\'' + buildId + '\')" style="background:var(--dim);border:none;color:var(--darker);padding:0.5rem 1.5rem;font-family:inherit;font-weight:bold;cursor:pointer;border-radius:4px">⬇ EXPORT AGENTS</button><span style="color:var(--dim);font-size:0.7rem;margin-left:1rem">Downloads JSON + Markdown per agent</span></div>';
         results.innerHTML = html;
         document.getElementById('buildBtn').disabled = false;
         document.getElementById('buildBtn').textContent = '▸ BUILD';
@@ -182,6 +180,19 @@ function showError(msg) {
   const el = document.getElementById('error');
   el.textContent = '✗ ' + msg;
   el.style.display = 'block';
+}
+
+async function downloadAgents(buildId) {
+  const r = await fetch(API + '/builds/' + buildId + '/export?format=individual');
+  const d = await r.json();
+  const files = d.files || {};
+  for (const [filename, content] of Object.entries(files)) {
+    const blob = new Blob([content], {type: 'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
 }
 </script>
 </body>

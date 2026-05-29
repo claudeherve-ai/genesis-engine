@@ -226,6 +226,46 @@ async def get_build_artifacts(
     return build.artifacts
 
 
+@router.get("/builds/{build_id}/export")
+async def export_agents(
+    build_id: str,
+    format: str = "json",
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Export generated agents as downloadable files.
+
+    Formats: json (single file with all agents), individual (one file per agent)
+    """
+    build = await build_repo.get(build_id)
+    if not build or not build.artifacts:
+        raise HTTPException(status_code=404, detail="No artifacts available")
+
+    agents = build.artifacts.get("agents", [])
+    if not agents:
+        raise HTTPException(status_code=404, detail="No agents in this build")
+
+    if format == "individual":
+        files = {}
+        for agent in agents:
+            name = agent.get("name", "agent")
+            files[f"{name}.json"] = json.dumps(agent, indent=2)
+            files[f"{name}.md"] = (
+                f"# {agent.get('name', 'Agent')}\n\n"
+                f"**Role:** {agent.get('role', '')}\n\n"
+                f"## System Prompt\n\n{agent.get('system_prompt', '')}\n\n"
+                f"## Tools\n\n"
+                + "\n".join(f"- **{t.get('name', 'tool')}**: {t.get('description', '')}"
+                          for t in agent.get("tools", []))
+            )
+        return {"agents": [a.get("name") for a in agents], "files": files}
+
+    return {
+        "build_id": build_id,
+        "agent_count": len(agents),
+        "agents": agents,
+    }
+
+
 # ────────────────────────────────────────────────────
 # One-shot Generate
 # ────────────────────────────────────────────────────
