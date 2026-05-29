@@ -42,7 +42,7 @@ class OpenAIProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
         }
 
         if response_format:
