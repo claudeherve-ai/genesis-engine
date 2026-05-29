@@ -13,6 +13,7 @@ from typing import Any
 
 from genesis.llm.provider import LLMProvider
 from genesis.models.agent import DomainModel
+from genesis.tools import research_topic, format_context_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ class AnalyzeStage:
         self.llm = llm
 
     async def run(self, problem_description: str) -> DomainModel:
-        """Run the ANALYZE stage.
+        """Run the ANALYZE stage — research the domain before analysis.
 
         Args:
             problem_description: Natural language description of the problem.
@@ -74,6 +75,19 @@ class AnalyzeStage:
         Raises:
             ValueError: If the LLM fails to produce valid JSON after all retries.
         """
+        # Step 0: Research the problem domain for grounding
+        web_context = await research_topic(problem_description)
+        grounding = format_context_for_prompt(web_context)
+
+        user_prompt = problem_description
+        if grounding:
+            user_prompt = (
+                f"Use the web research below to ground your analysis. "
+                f"Include relevant citations.\n\n{grounding}\n\n"
+                f"Problem: {problem_description}"
+            )
+            logger.info("ANALYZE grounded with %d web results", len(web_context.results))
+
         last_error: Exception | None = None
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -83,7 +97,7 @@ class AnalyzeStage:
                 )
                 response = await self.llm.complete(
                     system_prompt=system_prompt,
-                    user_prompt=problem_description,
+                    user_prompt=user_prompt,
                     temperature=0.3,
                     response_format={"type": "json_object"},
                 )
