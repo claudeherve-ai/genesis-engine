@@ -1,4 +1,15 @@
-"""FastAPI route definitions for Genesis Engine."""
+"""FastAPI route definitions for Genesis Engine.
+
+CITATION: Extended with tool validation, runtime execution, deployment,
+and feedback endpoints. 2026-06-01.
+BACK-LINK: /home/tedch/genesis-engine/genesis/pipeline/validate_tools.py,
+           /home/tedch/genesis-engine/genesis/runtime/,
+           /home/tedch/genesis-engine/genesis/deployment/,
+           /home/tedch/genesis-engine/genesis/feedback/
+Session: Hermes Agent, 2026-06-01.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import json
@@ -20,6 +31,7 @@ from genesis.api.dependencies import (
     get_llm_provider,
     get_deployment_target,
 )
+from genesis.tools.catalog import get_catalog, list_tool_names, list_categories
 
 logger = logging.getLogger("genesis.api")
 router = APIRouter(prefix="/v1")
