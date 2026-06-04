@@ -1,12 +1,5 @@
-"""Agent models — definitions, tools, skills, coordination, plus new models.
-
-CITATION: Extended for Genesis Engine upgrade with validation, runtime, deployment,
-and feedback models. 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/genesis/pipeline/validate_tools.py,
-           /home/tedch/genesis-engine/genesis/runtime/,
-           /home/tedch/genesis-engine/genesis/deployment/,
-           /home/tedch/genesis-engine/genesis/feedback/
-Session: Hermes Agent, 2026-06-01.
+"""Agent models — definitions, tools, skills, coordination, validation,
+runtime execution, deployment packaging, and feedback metrics.
 """
 
 from __future__ import annotations

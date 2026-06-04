@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Genesis Engine",
     description="Meta-agent factory — AI that builds AI. Describe a problem, get a deployed multi-agent system. MCP-grounded tools prevent hallucinations.",
-    version="0.2.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -54,7 +54,7 @@ async def root():
     ui_path = os.path.join(os.path.dirname(__file__), "..", "ui", "index.html")
     if os.path.isfile(ui_path):
         return FileResponse(ui_path, media_type="text/html")
-    return {"name": "Genesis Engine", "version": "0.1.0", "status": "running", "docs": "/docs"}
+    return {"name": "Genesis Engine", "version": "0.4.0", "status": "running", "docs": "/docs"}
 
 
 @app.get("/health")

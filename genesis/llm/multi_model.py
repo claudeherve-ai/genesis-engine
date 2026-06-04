@@ -5,10 +5,6 @@ Uses specialized models per pipeline stage to avoid single-model bias:
 - ARCHITECT: Claude (creativity) + GPT-5.4
 - BUILD: GPT-5.4 (generation) + Claude (placeholder)
 - TEST: Gemini (evaluation) + GPT-5.4
-
-CITATION: Built to avoid single-model pipeline bias.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations

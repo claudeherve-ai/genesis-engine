@@ -2,6 +2,7 @@
 
 from typing import Optional, List
 from datetime import datetime, timezone
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from genesis.storage.database import ProjectRecord, BuildRecord
 from genesis.models.project import Project
@@ -38,7 +39,7 @@ class ProjectRepository:
     async def list_all(self) -> List[Project]:
         records = (
             self.session.query(ProjectRecord)
-            .order_by(ProjectRecord.updated_at.desc())
+            .order_by(ProjectRecord.updated_at.desc(), text("rowid DESC"))
             .all()
         )
         return [self._to_model(r) for r in records]
@@ -116,7 +117,7 @@ class BuildRepository:
         records = (
             self.session.query(BuildRecord)
             .filter(BuildRecord.project_id == project_id)
-            .order_by(BuildRecord.created_at.desc())
+            .order_by(BuildRecord.created_at.desc(), text("rowid DESC"))
             .all()
         )
         return [self._to_model(r) for r in records]

@@ -3,10 +3,6 @@
 Replaces the LLM-based test simulation with real agent execution.
 Agents run in a sandboxed environment, their outputs are measured,
 and real performance metrics are produced.
-
-CITATION: Built to replace LLM-roleplayed testing with real execution.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations

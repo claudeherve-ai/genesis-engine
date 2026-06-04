@@ -1,12 +1,7 @@
 """FastAPI route definitions for Genesis Engine.
 
-CITATION: Extended with tool validation, runtime execution, deployment,
-and feedback endpoints. 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/genesis/pipeline/validate_tools.py,
-           /home/tedch/genesis-engine/genesis/runtime/,
-           /home/tedch/genesis-engine/genesis/deployment/,
-           /home/tedch/genesis-engine/genesis/feedback/
-Session: Hermes Agent, 2026-06-01.
+Projects, builds, one-shot generation, the verified-tool catalog, live
+log streaming, deployment packaging, and feedback endpoints.
 """
 
 from __future__ import annotations
@@ -31,7 +26,12 @@ from genesis.api.dependencies import (
     get_llm_provider,
     get_deployment_target,
 )
-from genesis.tools.catalog import get_catalog, list_tool_names, list_categories
+from genesis.tools.catalog import (
+    get_tool,
+    list_tools,
+    search_catalog,
+    TOOL_CATALOG,
+)
 
 logger = logging.getLogger("genesis.api")
 router = APIRouter(prefix="/v1")
@@ -276,6 +276,55 @@ async def export_agents(
         "agent_count": len(agents),
         "agents": agents,
     }
+
+
+# ────────────────────────────────────────────────────
+# Tool Catalog
+# ────────────────────────────────────────────────────
+
+
+def _serialize_tool(tool) -> dict:
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "category": tool.category,
+        "endpoint": tool.endpoint,
+        "auth_required": tool.auth_required,
+        "auth_method": tool.auth_method,
+        "env_var": tool.env_var,
+        "rate_limit": tool.rate_limit,
+        "is_available": tool.is_available,
+        "requires_configuration": tool.requires_configuration,
+        "docs_url": tool.docs_url,
+        "schema": tool.json_schema,
+    }
+
+
+@router.get("/tools")
+async def list_catalog_tools(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    q: Optional[str] = Query(None, description="Free-text search"),
+):
+    """List the verified tool catalog. Generated agents may ONLY use these tools."""
+    if q:
+        tools = search_catalog(q)
+    else:
+        tools = list_tools(category or "")
+    categories = sorted({t.category for t in TOOL_CATALOG.values()})
+    return {
+        "items": [_serialize_tool(t) for t in tools],
+        "total": len(tools),
+        "categories": categories,
+    }
+
+
+@router.get("/tools/{tool_name}")
+async def get_catalog_tool(tool_name: str):
+    """Get a single verified tool by name."""
+    tool = get_tool(tool_name)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found in catalog")
+    return _serialize_tool(tool)
 
 
 # ────────────────────────────────────────────────────

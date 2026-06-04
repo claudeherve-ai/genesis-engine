@@ -2,10 +2,6 @@
 
 Collects metrics from deployed agents, analyzes performance patterns,
 and feeds learnings back to improve future agent generation.
-
-CITATION: Built for continuous improvement of generated agents.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations

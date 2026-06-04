@@ -2,10 +2,6 @@
 
 Every tool has a verified endpoint, auth requirements, JSON Schema, and rate limits.
 Generated agents can ONLY use tools that exist in this catalog — no hallucinations.
-
-CITATION: Built to eliminate hallucinated tools in generated agents.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations

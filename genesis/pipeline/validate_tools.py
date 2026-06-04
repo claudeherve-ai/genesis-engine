@@ -2,10 +2,6 @@
 
 Runs between BUILD and TEST stages to catch hallucinated tools
 before they reach the test phase.
-
-CITATION: Built to eliminate hallucinated tool generation.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations
