@@ -115,6 +115,7 @@ def build(
                 "building": 60,
                 "testing": 80,
                 "deploying": 90,
+                "awaiting_approval": 85,
                 "completed": 100,
                 "failed": 100,
             }
@@ -153,6 +154,20 @@ def build(
                 if error:
                     console.print(f"[red]{error}[/red]")
                 raise typer.Exit(code=1)
+
+            elif status == "awaiting_approval":
+                console.print()
+                console.print(
+                    "[bold yellow]⏸ Build paused — awaiting human approval[/bold yellow]"
+                )
+                console.print(
+                    f"[dim]Approve: POST /v1/builds/{build_id}/approve[/dim]"
+                )
+                console.print(
+                    f"[dim]Reject:  POST /v1/builds/{build_id}/reject[/dim]"
+                )
+                console.print(f"\n[dim]Build ID: {build_id}[/dim]")
+                break
 
             time.sleep(1.5)
 

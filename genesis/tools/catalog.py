@@ -2,10 +2,6 @@
 
 Every tool has a verified endpoint, auth requirements, JSON Schema, and rate limits.
 Generated agents can ONLY use tools that exist in this catalog — no hallucinations.
-
-CITATION: Built to eliminate hallucinated tools in generated agents.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations
@@ -360,8 +356,102 @@ def search_catalog(query: str) -> List[CatalogTool]:
     ]
 
 
+def suggest_tools(name: str, limit: int = 3) -> List[str]:
+    """Suggest the closest real catalog tools for a (possibly hallucinated) name.
+
+    Uses difflib for fuzzy matching plus a category/keyword heuristic so that,
+    e.g., a hallucinated ``send_slack_message`` maps to ``notification_send``.
+    """
+    import difflib
+
+    names = list(TOOL_CATALOG.keys())
+    close = difflib.get_close_matches(name, names, n=limit, cutoff=0.4)
+
+    # Keyword overlap fallback — match on shared significant tokens.
+    if len(close) < limit:
+        tokens = {t for t in name.lower().replace("-", "_").split("_") if len(t) > 2}
+        scored: List[tuple] = []
+        for tool in TOOL_CATALOG.values():
+            haystack = f"{tool.name} {tool.description} {tool.category}".lower()
+            overlap = sum(1 for t in tokens if t in haystack)
+            if overlap and tool.name not in close:
+                scored.append((overlap, tool.name))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        for _, tool_name in scored:
+            if tool_name not in close:
+                close.append(tool_name)
+            if len(close) >= limit:
+                break
+
+    return close[:limit]
+
+
+@dataclass
+class ToolValidationReport:
+    """Result of validating every tool declared across a set of agents."""
+    valid: bool
+    hallucinated: Dict[str, List[str]] = field(default_factory=dict)
+    issues: Dict[str, List[str]] = field(default_factory=dict)
+    suggestions: Dict[str, List[str]] = field(default_factory=dict)
+    checked: int = 0
+
+    def feedback_text(self) -> str:
+        """Human/LLM-readable correction prompt for the BUILD retry loop."""
+        if self.valid:
+            return ""
+        lines: List[str] = ["TOOL VALIDATION FAILED — the following tools are NOT real:"]
+        for agent, tools in self.hallucinated.items():
+            for tool in tools:
+                hint = self.suggestions.get(tool, [])
+                hint_text = f" Did you mean: {', '.join(hint)}?" if hint else ""
+                lines.append(f"  - [{agent}] '{tool}' does not exist in the catalog.{hint_text}")
+        lines.append("")
+        lines.append("Regenerate using ONLY these real catalog tools:")
+        for tool in list_tools():
+            lines.append(f"  - {tool.name}: {tool.description}")
+        return "\n".join(lines)
+
+
+def validate_agent_tools(agents: Any) -> ToolValidationReport:
+    """Validate that every tool declared by every agent exists in the catalog.
+
+    Accepts a list of ``AgentDefinition`` (tools are ``ToolConfig`` objects) or
+    raw dicts. Hallucinated tools (not in the catalog) make the report invalid
+    and are mapped to suggested real tools for the BUILD retry loop.
+    """
+    report = ToolValidationReport(valid=True)
+
+    for agent in agents or []:
+        agent_name = getattr(agent, "name", None)
+        raw_tools = getattr(agent, "tools", None)
+        if agent_name is None and isinstance(agent, dict):
+            agent_name = agent.get("name", "unnamed")
+            raw_tools = agent.get("tools", [])
+        agent_name = agent_name or "unnamed"
+
+        for tool in raw_tools or []:
+            tool_name = getattr(tool, "name", None)
+            if tool_name is None and isinstance(tool, dict):
+                tool_name = tool.get("name")
+            elif tool_name is None and isinstance(tool, str):
+                tool_name = tool
+            if not tool_name:
+                continue
+
+            report.checked += 1
+            if get_tool(tool_name) is None:
+                report.valid = False
+                report.hallucinated.setdefault(agent_name, []).append(tool_name)
+                report.suggestions[tool_name] = suggest_tools(tool_name)
+                report.issues.setdefault(agent_name, []).append(
+                    f"'{tool_name}' is not a real catalog tool (possible hallucination)"
+                )
+
+    return report
+
+
 __all__ = [
-    "CatalogTool", "TOOL_CATALOG",
+    "CatalogTool", "TOOL_CATALOG", "ToolValidationReport",
     "get_tool", "list_tools", "list_available_tools",
-    "validate_tool", "search_catalog",
+    "validate_tool", "validate_agent_tools", "search_catalog", "suggest_tools",
 ]

@@ -25,6 +25,9 @@ class Project(BaseModel):
     status: ProjectStatus = ProjectStatus.ACTIVE
     build_count: int = 0
     last_build_id: Optional[str] = None
+    # The build currently serving live traffic. Distinct from ``last_build_id``
+    # (most recent build attempt): rollback flips this pointer to a prior build.
+    active_build_id: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

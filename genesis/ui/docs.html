@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Genesis Engine — Docs &amp; Setup</title>
+<style>
+  :root {
+    --bg: #070912; --panel: rgba(20,26,46,0.72); --panel-solid:#121829;
+    --border: rgba(120,140,200,0.16); --border-bright: rgba(120,160,255,0.4);
+    --text:#e8ecf8; --text-dim:#9aa6c8; --text-faint:#5d6788;
+    --violet:#8b5cf6; --indigo:#6366f1; --cyan:#22d3ee; --teal:#2dd4bf; --green:#34d399; --amber:#fbbf24; --rose:#fb7185;
+    --glow-v: rgba(139,92,246,0.45); --glow-c: rgba(34,211,238,0.35);
+    --mono: ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { font-family:var(--sans); background:var(--bg); color:var(--text); line-height:1.65; min-height:100vh; }
+  .aurora { position:fixed; inset:0; z-index:-2;
+    background: radial-gradient(1000px 500px at 12% -10%, rgba(99,102,241,0.16), transparent 60%),
+                radial-gradient(900px 500px at 95% 0%, rgba(34,211,238,0.1), transparent 55%), var(--bg); }
+  nav { position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:0.5rem;
+    padding:0.85rem 1.5rem; backdrop-filter:blur(18px); background:rgba(7,9,18,0.7); border-bottom:1px solid var(--border); }
+  .brand { display:flex; align-items:center; gap:0.6rem; font-weight:800; font-size:1.05rem; color:var(--text); text-decoration:none; margin-right:auto; }
+  .brand .logo { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-size:1rem;
+    background:linear-gradient(135deg,var(--violet),var(--cyan)); box-shadow:0 0 18px var(--glow-v); }
+  .brand .grad { background:linear-gradient(90deg,#c4b5fd,#67e8f9); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  nav a { font-size:0.82rem; font-weight:600; color:var(--text-dim); text-decoration:none; padding:0.45rem 0.8rem; border-radius:9px; transition:all 0.18s; }
+  nav a:hover { color:var(--text); background:rgba(120,140,200,0.08); }
+  nav a.cta { color:#0a0d18; background:linear-gradient(135deg,var(--violet),var(--indigo)); font-weight:700; }
+
+  .wrap { max-width:1180px; margin:0 auto; padding:0 1.25rem; display:grid; grid-template-columns:240px 1fr; gap:2rem; }
+  @media (max-width: 900px){ .wrap { grid-template-columns:1fr; } aside { display:none; } }
+
+  aside { position:sticky; top:70px; align-self:start; height:calc(100vh - 90px); overflow-y:auto; padding:1.5rem 0; }
+  aside h4 { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-faint); margin:1rem 0 0.5rem; }
+  aside a { display:block; font-size:0.82rem; color:var(--text-dim); text-decoration:none; padding:0.3rem 0.6rem; border-radius:7px; border-left:2px solid transparent; transition:all 0.15s; }
+  aside a:hover { color:var(--text); background:rgba(120,140,200,0.06); border-left-color:var(--violet); }
+
+  main { padding:2.5rem 0 5rem; min-width:0; }
+  header.hero { padding:1rem 0 2rem; }
+  .pill { display:inline-flex; align-items:center; gap:0.35rem; font-size:0.68rem; font-weight:600; padding:0.3rem 0.7rem; border-radius:999px; border:1px solid var(--border); color:var(--text-dim); background:rgba(120,140,200,0.05); margin-bottom:1rem; }
+  .pill .dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); }
+  h1 { font-size:clamp(1.9rem,4vw,2.8rem); font-weight:800; letter-spacing:-0.02em; line-height:1.1; margin-bottom:0.6rem; }
+  h1 .grad { background:linear-gradient(100deg,#a78bfa,#22d3ee 60%,#2dd4bf); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .lead { color:var(--text-dim); font-size:1.05rem; max-width:680px; }
+
+  section.doc { background:var(--panel); backdrop-filter:blur(16px); border:1px solid var(--border); border-radius:16px; padding:1.6rem 1.8rem; margin-bottom:1.2rem; scroll-margin-top:80px; box-shadow:0 8px 40px rgba(0,0,0,0.3); }
+  section.doc h2 { font-size:1.3rem; font-weight:800; margin-bottom:0.4rem; display:flex; align-items:center; gap:0.6rem; }
+  section.doc h2 .ic { width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:1rem; background:rgba(120,140,200,0.1); }
+  section.doc h3 { font-size:1rem; font-weight:700; margin:1.2rem 0 0.5rem; color:var(--text); }
+  section.doc p { color:var(--text-dim); margin-bottom:0.7rem; }
+  section.doc ul, section.doc ol { color:var(--text-dim); margin:0.3rem 0 0.8rem 1.3rem; }
+  section.doc li { margin-bottom:0.3rem; }
+  section.doc a { color:var(--teal); text-decoration:none; }
+  section.doc a:hover { text-decoration:underline; }
+  .sub { color:var(--text-dim); font-size:0.92rem; margin-bottom:1rem; }
+
+  .code { position:relative; font-family:var(--mono); font-size:0.82rem; line-height:1.6; color:#cdd6f4;
+    background:#0a0d18; border:1px solid var(--border); border-radius:11px; padding:1rem 1.1rem; overflow-x:auto; margin:0.6rem 0 1rem; }
+  .code .cm { color:var(--text-faint); }
+  .code .k { color:#c4b5fd; }
+  .code .s { color:#7ee787; }
+  .copy { position:absolute; top:0.5rem; right:0.5rem; font-size:0.64rem; padding:0.22rem 0.55rem; border-radius:6px;
+    border:1px solid var(--border); background:rgba(120,140,200,0.1); color:var(--text-dim); cursor:pointer; font-family:var(--sans); }
+  .copy:hover { color:var(--text); border-color:var(--border-bright); }
+
+  .tabs { display:flex; gap:0.4rem; flex-wrap:wrap; margin-bottom:0.4rem; }
+  .tab { font-size:0.78rem; font-weight:600; padding:0.4rem 0.85rem; border-radius:9px; border:1px solid var(--border); color:var(--text-dim); background:none; cursor:pointer; transition:all 0.15s; display:flex; align-items:center; gap:0.4rem; }
+  .tab.active, .tab:hover { color:var(--cyan); border-color:var(--cyan); background:rgba(34,211,238,0.08); }
+  .panel { display:none; }
+  .panel.active { display:block; }
+
+  table { width:100%; border-collapse:collapse; margin:0.6rem 0 1rem; font-size:0.85rem; }
+  th, td { text-align:left; padding:0.55rem 0.7rem; border-bottom:1px solid var(--border); }
+  th { color:var(--text-faint); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; }
+  td code, p code, li code { font-family:var(--mono); font-size:0.82rem; background:rgba(120,140,200,0.1); padding:0.1rem 0.35rem; border-radius:5px; color:#a5f3fc; }
+
+  .grid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0.8rem; margin:0.6rem 0 1rem; }
+  .feat { border:1px solid var(--border); border-radius:12px; padding:1rem; background:rgba(7,9,18,0.4); }
+  .feat .fi { font-size:1.4rem; margin-bottom:0.4rem; }
+  .feat h4 { font-size:0.9rem; font-weight:700; margin-bottom:0.25rem; }
+  .feat p { font-size:0.78rem; color:var(--text-dim); margin:0; }
+
+  .note { border-left:3px solid var(--cyan); background:rgba(34,211,238,0.05); padding:0.8rem 1rem; border-radius:0 10px 10px 0; margin:0.8rem 0; font-size:0.86rem; color:var(--text-dim); }
+  .note.warn { border-left-color:var(--amber); background:rgba(251,191,36,0.05); }
+  .note b { color:var(--text); }
+
+  .step { display:flex; gap:0.9rem; margin-bottom:0.9rem; }
+  .step .n { flex-shrink:0; width:28px; height:28px; border-radius:8px; display:grid; place-items:center; font-size:0.78rem; font-weight:800; color:#0a0d18; background:linear-gradient(135deg,var(--violet),var(--cyan)); }
+  .step .sb { flex:1; }
+  .step .sb b { color:var(--text); }
+
+  footer { text-align:center; padding:2.5rem 1rem; color:var(--text-faint); font-size:0.74rem; border-top:1px solid var(--border); }
+  footer .grad { background:linear-gradient(90deg,#a78bfa,#67e8f9); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:rgba(120,140,200,0.2); border-radius:8px; }
+</style>
+</head>
+<body>
+<div class="aurora"></div>
+
+<nav>
+  <a href="/" class="brand"><span class="logo">⚡</span><span>GENESIS <span class="grad">ENGINE</span></span></a>
+  <a href="/">Build</a>
+  <a href="/docs" target="_blank">API reference</a>
+  <a href="/" class="cta">← Back to app</a>
+</nav>
+
+<div class="wrap">
+  <aside>
+    <h4>Get started</h4>
+    <a href="#what">What is Genesis</a>
+    <a href="#quickstart">60-second quickstart</a>
+    <a href="#flow">Build → test → deploy</a>
+    <h4>Install anywhere</h4>
+    <a href="#local">Local (pip / venv)</a>
+    <a href="#docker">Docker</a>
+    <a href="#compose">Docker Compose</a>
+    <a href="#azure">Azure Container Apps</a>
+    <a href="#k8s">Kubernetes</a>
+    <a href="#cli">CLI &amp; API</a>
+    <h4>Configure</h4>
+    <a href="#env">Environment variables</a>
+    <a href="#security">Auth, RBAC &amp; secrets</a>
+    <a href="#offline">Offline mode</a>
+    <h4>Reference</h4>
+    <a href="#api">Key API endpoints</a>
+    <a href="#troubleshoot">Troubleshooting</a>
+  </aside>
+
+  <main>
+    <header class="hero">
+      <span class="pill"><span class="dot"></span> v0.4.0 · production-ready</span>
+      <h1>Build a multi-agent system <span class="grad">anywhere</span>.</h1>
+      <p class="lead">Genesis Engine turns one sentence into a tested, deployed multi-agent system. This guide gets you running locally, in Docker, on Azure, or on Kubernetes — and runs <b>green offline</b> with zero API keys.</p>
+    </header>
+
+    <section class="doc" id="what">
+      <h2><span class="ic">🧬</span> What is Genesis Engine?</h2>
+      <p>You describe a problem in plain English. Genesis runs a five-stage pipeline and hands you a working system:</p>
+      <div class="grid3">
+        <div class="feat"><div class="fi">🔍</div><h4>Analyze</h4><p>Decomposes your problem into a domain model with grounded citations.</p></div>
+        <div class="feat"><div class="fi">🏗️</div><h4>Architect</h4><p>Designs agent topology + concrete test scenarios with expected outputs.</p></div>
+        <div class="feat"><div class="fi">🔧</div><h4>Build</h4><p>Writes prompts and verifies every tool against the live tool catalog — no hallucinated tools.</p></div>
+        <div class="feat"><div class="fi">🧪</div><h4>Test</h4><p>Actually executes agents in a sandbox against the scenarios and scores from reality.</p></div>
+        <div class="feat"><div class="fi">🚀</div><h4>Deploy</h4><p>Provisions on your target (AgentSystem, Docker, Azure, K8s, local) with health checks.</p></div>
+        <div class="feat"><div class="fi">📊</div><h4>Observe</h4><p>Token/cost telemetry, transcripts, citations, versioning, and rollback.</p></div>
+      </div>
+      <div class="note"><b>Anti-hallucination by design.</b> Agents may only use tools from the verified catalog, grounded in Microsoft Learn + live web search. Every claim carries a citation.</div>
+    </section>
+
+    <section class="doc" id="quickstart">
+      <h2><span class="ic">⚡</span> 60-second quickstart</h2>
+      <p class="sub">The fastest path. Works with no API keys (offline dry-run deploy). Add keys later for real LLM + deploy.</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># clone + install + run</span>
+git clone https://github.com/claudedjale/genesis-engine.git
+cd genesis-engine
+python -m venv .venv
+<span class="cm"># Windows</span>  .venv\Scripts\activate
+<span class="cm"># macOS/Linux</span>  source .venv/bin/activate
+pip install -e .
+genesis server</button></div>
+      <p>Then open <a href="http://localhost:8000" target="_blank">http://localhost:8000</a>, type a sentence, and click <b>Build my system</b>.</p>
+      <div class="note">Prefer not to install? Jump to <a href="#docker">Docker</a> for a one-command container.</div>
+    </section>
+
+    <section class="doc" id="flow">
+      <h2><span class="ic">🛠️</span> Build → test → deploy in the UI</h2>
+      <div class="step"><div class="n">1</div><div class="sb"><b>Start from a recipe</b> — scroll to the <b>Recipe gallery</b> and click a template (Support, Research, DevOps, etc.), or write your own description.</div></div>
+      <div class="step"><div class="n">2</div><div class="sb"><b>Pick a target &amp; (optionally) require approval</b> — choose Docker / Azure / K8s / Local, and tick <i>Require human approval</i> for a pause-before-deploy gate.</div></div>
+      <div class="step"><div class="n">3</div><div class="sb"><b>Watch it build live</b> — the pipeline streams each stage. When done you'll see the test score, real execution transcripts, citations, and cost.</div></div>
+      <div class="step"><div class="n">4</div><div class="sb"><b>Deploy or export</b> — click <b>Deploy this system</b> for copy-paste steps per environment, or <b>Export agents</b> to download JSON + Markdown.</div></div>
+    </section>
+
+    <section class="doc" id="local">
+      <h2><span class="ic">💻</span> Install locally (pip / venv)</h2>
+      <p class="sub">Recommended for development. Requires Python 3.10+.</p>
+      <div class="tabs">
+        <button class="tab active" onclick="tab(this,'win')">🪟 Windows</button>
+        <button class="tab" onclick="tab(this,'nix')">🐧 macOS / Linux</button>
+      </div>
+      <div class="panel active" data-p="win">
+        <div class="code"><button class="copy" onclick="cp(this)">python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+<span class="cm"># run the server (UI at http://localhost:8000)</span>
+genesis server
+<span class="cm"># or pick a port</span>
+set GENESIS_PORT=8080 && genesis server</button></div>
+      </div>
+      <div class="panel" data-p="nix">
+        <div class="code"><button class="copy" onclick="cp(this)">python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+<span class="cm"># run the server (UI at http://localhost:8000)</span>
+genesis server
+<span class="cm"># or pick a port</span>
+genesis server --port 8080</button></div>
+      </div>
+      <p>Run the test suite to confirm everything's green:</p>
+      <div class="code"><button class="copy" onclick="cp(this)">pip install -e ".[dev]"
+pytest -q</button></div>
+    </section>
+
+    <section class="doc" id="docker">
+      <h2><span class="ic">🐳</span> Run with Docker</h2>
+      <p class="sub">A self-contained container — no Python setup needed.</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># build the image</span>
+docker build -t genesis-engine .
+
+<span class="cm"># run it (UI + API on :8000)</span>
+docker run --rm -p 8000:8000 genesis-engine
+
+<span class="cm"># with real LLM + secrets (optional)</span>
+docker run --rm -p 8000:8000 \
+  -e AZURE_OPENAI_API_KEY=<span class="s">&lt;your-key&gt;</span> \
+  -e GENESIS_SECRET_KEY=<span class="s">&lt;fernet-key&gt;</span> \
+  genesis-engine</button></div>
+      <div class="note">No <code>Dockerfile</code> yet? Genesis ships one. If you cloned a minimal copy, the <b>Deploy this system</b> modal generates a ready-to-use Dockerfile + steps for your build.</div>
+    </section>
+
+    <section class="doc" id="compose">
+      <h2><span class="ic">🧩</span> Docker Compose</h2>
+      <p class="sub">For a persistent service with a mounted database.</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="k">services</span>:
+  genesis:
+    build: .
+    ports: [<span class="s">"8000:8000"</span>]
+    environment:
+      GENESIS_PORT: <span class="s">"8000"</span>
+      GENESIS_DB: <span class="s">"sqlite:////data/genesis.db"</span>
+      <span class="cm"># GENESIS_API_KEYS: "admin:supersecret,user:devkey"</span>
+      <span class="cm"># AZURE_OPENAI_API_KEY: "&lt;key&gt;"</span>
+    volumes: [<span class="s">"./data:/data"</span>]
+    restart: unless-stopped</button></div>
+      <div class="code"><button class="copy" onclick="cp(this)">docker compose up -d
+docker compose logs -f genesis</button></div>
+    </section>
+
+    <section class="doc" id="azure">
+      <h2><span class="ic">☁️</span> Deploy to Azure Container Apps</h2>
+      <p class="sub">Production-grade serverless containers with scale-to-zero.</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># 1. push image to Azure Container Registry</span>
+az acr build -r <span class="s">&lt;registry&gt;</span> -t genesis-engine:latest .
+
+<span class="cm"># 2. create the Container App</span>
+az containerapp up \
+  --name genesis-engine \
+  --resource-group <span class="s">&lt;rg&gt;</span> \
+  --image <span class="s">&lt;registry&gt;</span>.azurecr.io/genesis-engine:latest \
+  --target-port 8000 --ingress external \
+  --env-vars GENESIS_PORT=8000
+
+<span class="cm"># 3. set secrets securely (recommended)</span>
+az containerapp secret set -n genesis-engine -g <span class="s">&lt;rg&gt;</span> \
+  --secrets openai-key=<span class="s">&lt;key&gt;</span> fernet=<span class="s">&lt;fernet&gt;</span>
+az containerapp update -n genesis-engine -g <span class="s">&lt;rg&gt;</span> \
+  --set-env-vars AZURE_OPENAI_API_KEY=secretref:openai-key \
+                 GENESIS_SECRET_KEY=secretref:fernet</button></div>
+      <div class="note warn"><b>Never bake secrets into the image.</b> Use Container App secrets or Azure Key Vault references, and store API keys with <code>GENESIS_API_KEYS</code> to lock down the endpoint.</div>
+    </section>
+
+    <section class="doc" id="k8s">
+      <h2><span class="ic">☸️</span> Kubernetes</h2>
+      <p class="sub">Drop-in Deployment + Service. Scale replicas as needed.</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="k">apiVersion</span>: apps/v1
+<span class="k">kind</span>: Deployment
+<span class="k">metadata</span>: { name: genesis-engine }
+<span class="k">spec</span>:
+  replicas: 2
+  selector: { matchLabels: { app: genesis-engine } }
+  template:
+    metadata: { labels: { app: genesis-engine } }
+    spec:
+      containers:
+        - name: genesis
+          image: <span class="s">&lt;registry&gt;</span>/genesis-engine:latest
+          ports: [{ containerPort: 8000 }]
+          envFrom: [{ secretRef: { name: genesis-secrets } }]
+---
+<span class="k">apiVersion</span>: v1
+<span class="k">kind</span>: Service
+<span class="k">metadata</span>: { name: genesis-engine }
+<span class="k">spec</span>:
+  selector: { app: genesis-engine }
+  ports: [{ port: 80, targetPort: 8000 }]
+  type: LoadBalancer</button></div>
+      <div class="code"><button class="copy" onclick="cp(this)">kubectl create secret generic genesis-secrets \
+  --from-literal=AZURE_OPENAI_API_KEY=<span class="s">&lt;key&gt;</span> \
+  --from-literal=GENESIS_SECRET_KEY=<span class="s">&lt;fernet&gt;</span>
+kubectl apply -f genesis.yaml</button></div>
+    </section>
+
+    <section class="doc" id="cli">
+      <h2><span class="ic">⌨️</span> CLI &amp; API</h2>
+      <h3>Command line</h3>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># build a system from your terminal (server must be running)</span>
+genesis build <span class="s">"I need a research team: web researcher, summarizer, fact-checker"</span>
+
+<span class="cm"># list projects and check a build</span>
+genesis projects
+genesis status <span class="s">&lt;build-id&gt;</span>
+
+<span class="cm"># start the API + UI</span>
+genesis server --port 8000</button></div>
+      <h3>Direct API (any language)</h3>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># kick off a build</span>
+curl -X POST http://localhost:8000/v1/generate \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{"problem":"a customer support triage system","target":"local"}'</span>
+
+<span class="cm"># list the verified tools agents may use</span>
+curl http://localhost:8000/v1/tools</button></div>
+    </section>
+
+    <section class="doc" id="env">
+      <h2><span class="ic">🔧</span> Environment variables</h2>
+      <p class="sub">Everything is optional. Genesis runs fully offline with none of these set.</p>
+      <table>
+        <tr><th>Variable</th><th>Purpose</th><th>Default</th></tr>
+        <tr><td><code>GENESIS_PORT</code></td><td>HTTP port for server + UI</td><td><code>8000</code></td></tr>
+        <tr><td><code>GENESIS_HOST</code></td><td>Bind address</td><td><code>0.0.0.0</code></td></tr>
+        <tr><td><code>GENESIS_DB</code></td><td>Database URL (SQLite)</td><td><code>sqlite:///genesis.db</code></td></tr>
+        <tr><td><code>AZURE_OPENAI_API_KEY</code></td><td>Enables real LLM generation</td><td><i>unset → offline</i></td></tr>
+        <tr><td><code>GENESIS_API_KEYS</code></td><td>Enable auth: <code>admin:KEY,user:KEY</code></td><td><i>unset → open</i></td></tr>
+        <tr><td><code>GENESIS_SECRET_KEY</code></td><td>Fernet key to encrypt deploy secrets at rest</td><td><i>unset → no-op</i></td></tr>
+        <tr><td><code>GENESIS_RATE_LIMIT</code></td><td>Requests/min per key/IP (<code>0</code> disables)</td><td>lenient</td></tr>
+        <tr><td><code>TAVILY_API_KEY</code></td><td>Real web search (falls back to DuckDuckGo)</td><td><i>unset → DDG</i></td></tr>
+        <tr><td><code>AGENTSYSTEM_ENDPOINT</code></td><td>AgentSystem deploy target URL</td><td><i>unset → dry-run</i></td></tr>
+        <tr><td><code>CORS_ORIGINS</code></td><td>Comma-separated allowed origins</td><td><code>*</code></td></tr>
+      </table>
+    </section>
+
+    <section class="doc" id="security">
+      <h2><span class="ic">🔐</span> Auth, RBAC &amp; secrets</h2>
+      <h3>Lock down the endpoint</h3>
+      <p>Set <code>GENESIS_API_KEYS</code> to require an <code>X-API-Key</code> header. Roles are <code>admin</code> (full access incl. approve/rollback) and <code>user</code> (build/read).</p>
+      <div class="code"><button class="copy" onclick="cp(this)"><span class="cm"># enable auth with two keys</span>
+export GENESIS_API_KEYS=<span class="s">"admin:s3cr3t-admin,user:dev-key"</span>
+
+<span class="cm"># call with a key</span>
+curl -H <span class="s">"X-API-Key: dev-key"</span> -X POST http://localhost:8000/v1/generate \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{"problem":"a support triage system","target":"local"}'</span></button></div>
+      <div class="note">When <code>GENESIS_API_KEYS</code> is unset, the API is <b>open</b> — perfect for local dev and the test suite, but set keys before exposing it.</div>
+      <h3>Encrypt deploy secrets</h3>
+      <p>Generate a Fernet key and set <code>GENESIS_SECRET_KEY</code> so any secrets in <code>target_config</code> are encrypted at rest:</p>
+      <div class="code"><button class="copy" onclick="cp(this)">python -c <span class="s">"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</span></button></div>
+    </section>
+
+    <section class="doc" id="offline">
+      <h2><span class="ic">🛜</span> Offline mode</h2>
+      <p>With no <code>AZURE_OPENAI_API_KEY</code>, Genesis runs in a safe offline mode: the deploy stage performs a <b>dry-run</b> (health-checks pass, no external calls), web search falls back to DuckDuckGo, embeddings use a deterministic TF-IDF fallback, and the full test suite passes. This makes it perfect for demos, CI, and air-gapped evaluation.</p>
+      <div class="note warn">Offline builds won't produce real LLM-authored prompts. Add <code>AZURE_OPENAI_API_KEY</code> for production-quality generation and a real deploy target for live endpoints.</div>
+    </section>
+
+    <section class="doc" id="api">
+      <h2><span class="ic">🔌</span> Key API endpoints</h2>
+      <p class="sub">Full interactive reference at <a href="/docs" target="_blank">/docs</a>.</p>
+      <table>
+        <tr><th>Method</th><th>Path</th><th>What it does</th></tr>
+        <tr><td>POST</td><td><code>/v1/generate</code></td><td>Build a system from a prompt</td></tr>
+        <tr><td>GET</td><td><code>/v1/builds/{id}</code></td><td>Build status + artifacts</td></tr>
+        <tr><td>GET</td><td><code>/v1/builds/{id}/logs</code></td><td>Live progress (SSE)</td></tr>
+        <tr><td>GET</td><td><code>/v1/builds/{id}/deploy-package</code></td><td>Per-environment deploy guides</td></tr>
+        <tr><td>GET</td><td><code>/v1/templates</code></td><td>Recipe gallery</td></tr>
+        <tr><td>GET</td><td><code>/v1/tools</code></td><td>Verified tool catalog</td></tr>
+        <tr><td>GET</td><td><code>/v1/metrics</code></td><td>Token/cost telemetry</td></tr>
+        <tr><td>POST</td><td><code>/v1/builds/{id}/approve</code></td><td>Approve a paused build (admin)</td></tr>
+        <tr><td>POST</td><td><code>/v1/projects/{id}/rollback</code></td><td>Roll back to a prior version (admin)</td></tr>
+      </table>
+    </section>
+
+    <section class="doc" id="troubleshoot">
+      <h2><span class="ic">🩺</span> Troubleshooting</h2>
+      <h3>The build fails immediately</h3>
+      <p>Offline you'll get dry-run deploys, not failures. If a build fails, check the server logs and confirm <code>AZURE_OPENAI_API_KEY</code> is valid when generation is expected.</p>
+      <h3>403 / 401 responses</h3>
+      <p>Auth is enabled via <code>GENESIS_API_KEYS</code>. Pass <code>X-API-Key</code>; admin-only routes (approve, rollback) need the admin key.</p>
+      <h3>429 Too Many Requests</h3>
+      <p>The rate limiter kicked in. Raise or disable it with <code>GENESIS_RATE_LIMIT</code> (set <code>0</code> to turn off).</p>
+      <h3>Templates / metrics panel empty</h3>
+      <p>Confirm the server is running and reachable; the UI fetches <code>/v1/templates</code> and <code>/v1/metrics</code> from the same origin.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <span class="grad">GENESIS ENGINE</span> v0.4.0 · <a href="/" style="color:var(--teal);text-decoration:none">Back to the app</a> · <a href="/docs" style="color:var(--teal);text-decoration:none">API reference</a>
+</footer>
+
+<script>
+function cp(btn){
+  const code = btn.parentElement; const txt = code.innerText.replace(/^Copied!?\s*/, '');
+  navigator.clipboard.writeText(txt.trim()).then(()=>{ const o=btn.textContent; btn.textContent='Copied!'; setTimeout(()=>btn.textContent=o,1200); });
+}
+function tab(btn, key){
+  const sec = btn.closest('.doc');
+  sec.querySelectorAll('.tab').forEach(t=>t.classList.remove('active')); btn.classList.add('active');
+  sec.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.dataset.p===key));
+}
+</script>
+</body>
+</html>

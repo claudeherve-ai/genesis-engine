@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 from genesis.api.routes import router
+from genesis.security.rate_limit import RateLimitMiddleware, rate_limit_config
+from genesis.security.auth import auth_enabled
 
 load_dotenv()
 
@@ -26,6 +28,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"  LLM: Azure Foundry (gpt-5.4)" if os.getenv("AZURE_OPENAI_API_KEY") else "  LLM: NOT CONFIGURED")
     logger.info(f"  Database: {os.getenv('GENESIS_DB', 'sqlite:///genesis.db')}")
     logger.info(f"  Target: {os.getenv('AGENTSYSTEM_ENDPOINT', 'not configured')}")
+    _rl = rate_limit_config()
+    logger.info(
+        "  Auth: %s | Rate limit: %s",
+        "ENABLED (X-API-Key)" if auth_enabled() else "OPEN (no keys configured)",
+        f"{_rl.per_minute}/min" if _rl.enabled else "disabled",
+    )
     yield
     logger.info("Genesis Engine shutting down.")
 
@@ -33,7 +41,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Genesis Engine",
     description="Meta-agent factory — AI that builds AI. Describe a problem, get a deployed multi-agent system. MCP-grounded tools prevent hallucinations.",
-    version="0.2.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -46,6 +54,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Token-bucket rate limiting (lenient defaults; disable with GENESIS_RATE_LIMIT=0)
+app.add_middleware(RateLimitMiddleware)
+
 app.include_router(router)
 
 
@@ -54,7 +65,15 @@ async def root():
     ui_path = os.path.join(os.path.dirname(__file__), "..", "ui", "index.html")
     if os.path.isfile(ui_path):
         return FileResponse(ui_path, media_type="text/html")
-    return {"name": "Genesis Engine", "version": "0.1.0", "status": "running", "docs": "/docs"}
+    return {"name": "Genesis Engine", "version": "0.4.0", "status": "running", "docs": "/docs"}
+
+
+@app.get("/docs-guide")
+async def docs_guide():
+    guide_path = os.path.join(os.path.dirname(__file__), "..", "ui", "docs.html")
+    if os.path.isfile(guide_path):
+        return FileResponse(guide_path, media_type="text/html")
+    return {"name": "Genesis Engine", "version": "0.4.0", "docs": "/docs"}
 
 
 @app.get("/health")
