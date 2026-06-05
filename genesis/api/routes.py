@@ -26,6 +26,9 @@ from genesis.api.dependencies import (
     get_llm_provider,
     get_deployment_target,
 )
+from genesis.security.auth import require_user, require_admin, Principal
+from genesis.security.secrets import encrypt_config_secrets, decrypt_config_secrets
+from genesis.observability.cost import get_cost_tracker
 from genesis.tools.catalog import (
     get_tool,
     list_tools,
@@ -99,8 +102,9 @@ async def update_project(
 async def delete_project(
     project_id: str,
     repo: ProjectRepository = Depends(get_project_repo),
+    _: Principal = Depends(require_admin),
 ):
-    """Delete a project."""
+    """Delete a project. Requires admin when auth is enabled."""
     deleted = await repo.delete(project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -118,6 +122,7 @@ async def trigger_build(
     body: BuildRequest,
     project_repo: ProjectRepository = Depends(get_project_repo),
     build_repo: BuildRepository = Depends(get_build_repo),
+    _: Principal = Depends(require_user),
 ):
     """Trigger a build pipeline for a project."""
     project = await project_repo.get(project_id)
@@ -128,7 +133,7 @@ async def trigger_build(
         project_id=project_id,
         problem_description=body.problem_description,
         target=body.target,
-        target_config=body.target_config,
+        target_config=encrypt_config_secrets(body.target_config),
     )
     await build_repo.create(build)
 
@@ -328,6 +333,23 @@ async def get_catalog_tool(tool_name: str):
 
 
 # ────────────────────────────────────────────────────
+# Observability / Metrics
+# ────────────────────────────────────────────────────
+
+
+@router.get("/metrics")
+async def get_metrics():
+    """Token/cost telemetry: totals, per-model, per-stage, per-build."""
+    return get_cost_tracker().snapshot()
+
+
+@router.get("/builds/{build_id}/metrics")
+async def get_build_metrics(build_id: str):
+    """Cost/token telemetry scoped to a single build."""
+    return get_cost_tracker().snapshot(build_id=build_id)
+
+
+# ────────────────────────────────────────────────────
 # One-shot Generate
 # ────────────────────────────────────────────────────
 
@@ -337,6 +359,7 @@ async def generate(
     body: GenerateRequest,
     project_repo: ProjectRepository = Depends(get_project_repo),
     build_repo: BuildRepository = Depends(get_build_repo),
+    _: Principal = Depends(require_user),
 ):
     """One-shot: create project + build + deploy in one call.
 
@@ -356,7 +379,7 @@ async def generate(
         project_id=project.id,
         problem_description=body.problem,
         target=body.target,
-        target_config=body.target_config,
+        target_config=encrypt_config_secrets(body.target_config),
     )
     await build_repo.create(build)
 
@@ -386,6 +409,9 @@ async def generate(
 async def _run_pipeline(build: Build) -> None:
     """Run the pipeline in the background, updating storage as we go."""
     session = None
+    # Decrypt any secrets that were encrypted at rest before the pipeline
+    # (deploy stage) needs them in plaintext.
+    build.target_config = decrypt_config_secrets(build.target_config)
     try:
         # Fresh session for the background task
         from genesis.storage.database import get_session as _get_session

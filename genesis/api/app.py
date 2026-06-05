@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 from genesis.api.routes import router
+from genesis.security.rate_limit import RateLimitMiddleware, rate_limit_config
+from genesis.security.auth import auth_enabled
 
 load_dotenv()
 
@@ -26,6 +28,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"  LLM: Azure Foundry (gpt-5.4)" if os.getenv("AZURE_OPENAI_API_KEY") else "  LLM: NOT CONFIGURED")
     logger.info(f"  Database: {os.getenv('GENESIS_DB', 'sqlite:///genesis.db')}")
     logger.info(f"  Target: {os.getenv('AGENTSYSTEM_ENDPOINT', 'not configured')}")
+    _rl = rate_limit_config()
+    logger.info(
+        "  Auth: %s | Rate limit: %s",
+        "ENABLED (X-API-Key)" if auth_enabled() else "OPEN (no keys configured)",
+        f"{_rl.per_minute}/min" if _rl.enabled else "disabled",
+    )
     yield
     logger.info("Genesis Engine shutting down.")
 
@@ -45,6 +53,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Token-bucket rate limiting (lenient defaults; disable with GENESIS_RATE_LIMIT=0)
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(router)
 

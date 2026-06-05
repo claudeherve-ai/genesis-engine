@@ -13,12 +13,14 @@ from genesis.adapters.agentsystem import create_agentsystem_adapter
 
 @lru_cache()
 def get_llm_provider() -> LLMProvider:
-    """Get the configured LLM provider.
+    """Get the configured LLM provider, metered for cost/token tracking.
 
     Uses Azure Foundry (Azure OpenAI) with AZURE_OPENAI_API_KEY.
     """
     if os.getenv("AZURE_OPENAI_API_KEY"):
-        return OpenAIProvider()
+        from genesis.observability.cost import CostTrackingProvider
+
+        return CostTrackingProvider(OpenAIProvider())
     raise RuntimeError(
         "No LLM provider configured. Set AZURE_OPENAI_API_KEY."
     )

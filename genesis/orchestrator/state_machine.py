@@ -328,6 +328,12 @@ class Orchestrator:
         build.stage = stage
         build.status = _STAGE_TO_STATUS[stage]
         build.stage_progress = progress
+        try:
+            from genesis.observability.cost import set_active_context
+
+            set_active_context(stage=stage.value, build_id=build.id)
+        except Exception:  # pragma: no cover - cost tracking is best-effort
+            pass
 
     async def _persist(self, build: Build) -> None:
         """Persist the build's current state to storage."""
