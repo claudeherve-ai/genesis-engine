@@ -28,11 +28,11 @@ class TestBuildStatus:
         assert BuildStatus.FAILED.value == "failed"
 
     def test_enum_membership(self):
-        assert len(BuildStatus) == 8
+        assert len(BuildStatus) == 9
         values = {s.value for s in BuildStatus}
         assert values == {
             "queued", "analyzing", "architecting", "building",
-            "testing", "deploying", "completed", "failed",
+            "testing", "deploying", "awaiting_approval", "completed", "failed",
         }
 
     def test_enum_from_string(self):

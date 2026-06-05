@@ -23,6 +23,11 @@ from genesis.models.agent import (
     SkillFile,
     CoordinationConfig,
 )
+from genesis.tools.catalog import (
+    ToolValidationReport,
+    list_tools,
+    validate_agent_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +138,8 @@ class BuildStage:
         # Research real tool capabilities via MCP + web
         tool_research = await self._research_tools(architecture)
 
-        user_prompt = self._build_prompt(architecture, feedback, tool_research)
+        base_prompt = self._build_prompt(architecture, feedback, tool_research)
+        user_prompt = base_prompt
         last_error: Exception | None = None
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -164,9 +170,36 @@ class BuildStage:
                     )
 
                 agents = [self._build_agent_definition(a) for a in raw_agents]
+
+                # ---- Anti-hallucination gate: validate tools against catalog ----
+                report = validate_agent_tools(agents)
+                if not report.valid:
+                    if attempt < MAX_RETRIES:
+                        logger.warning(
+                            "BUILD produced %d hallucinated tool(s) (attempt %d/%d); "
+                            "retrying with correction feedback",
+                            sum(len(v) for v in report.hallucinated.values()),
+                            attempt,
+                            MAX_RETRIES,
+                        )
+                        user_prompt = base_prompt + "\n\n" + "=" * 40 + "\n" + report.feedback_text()
+                        last_error = ValueError(
+                            f"hallucinated tools: {report.hallucinated}"
+                        )
+                        continue
+                    # Final attempt still invalid — strip fake tools rather than ship them.
+                    agents = self._strip_hallucinated_tools(agents, report)
+                    logger.error(
+                        "BUILD could not eliminate hallucinated tools after %d attempts; "
+                        "stripped them to guarantee no fake tools ship: %s",
+                        MAX_RETRIES,
+                        report.hallucinated,
+                    )
+
                 logger.info(
-                    "BUILD stage complete — generated %d agents: %s",
+                    "BUILD stage complete — generated %d agents (%d tools validated): %s",
                     len(agents),
+                    report.checked,
                     [a.name for a in agents],
                 )
                 return agents
@@ -183,6 +216,18 @@ class BuildStage:
             f"BUILD stage failed after {MAX_RETRIES} retries. "
             f"Last error: {last_error}"
         )
+
+    @staticmethod
+    def _strip_hallucinated_tools(
+        agents: List[AgentDefinition],
+        report: "ToolValidationReport",
+    ) -> List[AgentDefinition]:
+        """Remove tools flagged as hallucinated so no fake tools ever ship."""
+        for agent in agents:
+            bad = set(report.hallucinated.get(agent.name, []))
+            if bad:
+                agent.tools = [t for t in agent.tools if t.name not in bad]
+        return agents
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -224,6 +269,14 @@ class BuildStage:
         fallback = architecture.routing.get("fallback_agent")
         if fallback:
             lines.append(f"Fallback agent: {fallback}")
+
+        # Authoritative list of REAL tools — agents may ONLY use these.
+        lines.append("")
+        lines.append("=" * 40)
+        lines.append("REAL TOOL CATALOG — use ONLY these tool names (anything else is rejected):")
+        for tool in list_tools():
+            lines.append(f"  - {tool.name}: {tool.description}")
+        lines.append("=" * 40)
 
         # Include tool research (MCP + web grounding)
         if tool_research:

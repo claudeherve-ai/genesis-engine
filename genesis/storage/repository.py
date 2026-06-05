@@ -2,6 +2,7 @@
 
 from typing import Optional, List
 from datetime import datetime, timezone
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from genesis.storage.database import ProjectRecord, BuildRecord
 from genesis.models.project import Project
@@ -22,6 +23,7 @@ class ProjectRepository:
             status=project.status.value,
             build_count=project.build_count,
             last_build_id=project.last_build_id,
+            active_build_id=project.active_build_id,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -38,7 +40,7 @@ class ProjectRepository:
     async def list_all(self) -> List[Project]:
         records = (
             self.session.query(ProjectRecord)
-            .order_by(ProjectRecord.updated_at.desc())
+            .order_by(ProjectRecord.updated_at.desc(), text("rowid DESC"))
             .all()
         )
         return [self._to_model(r) for r in records]
@@ -52,6 +54,7 @@ class ProjectRepository:
         record.status = getattr(project.status, "value", project.status)
         record.build_count = project.build_count
         record.last_build_id = project.last_build_id
+        record.active_build_id = project.active_build_id
         record.updated_at = datetime.now(timezone.utc)
         self.session.commit()
         project.updated_at = record.updated_at
@@ -74,6 +77,7 @@ class ProjectRepository:
             status=record.status,
             build_count=record.build_count,
             last_build_id=record.last_build_id,
+            active_build_id=getattr(record, "active_build_id", None),
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
@@ -99,6 +103,8 @@ class BuildRepository:
             test_results=build.test_results,
             error=build.error,
             retries=build.retries,
+            parent_build_id=build.parent_build_id,
+            feedback_seed=build.feedback_seed,
             created_at=build.created_at,
             completed_at=build.completed_at,
         )
@@ -116,7 +122,7 @@ class BuildRepository:
         records = (
             self.session.query(BuildRecord)
             .filter(BuildRecord.project_id == project_id)
-            .order_by(BuildRecord.created_at.desc())
+            .order_by(BuildRecord.created_at.desc(), text("rowid DESC"))
             .all()
         )
         return [self._to_model(r) for r in records]
@@ -151,6 +157,8 @@ class BuildRepository:
             test_results=record.test_results,
             error=record.error,
             retries=record.retries or 0,
+            parent_build_id=getattr(record, "parent_build_id", None),
+            feedback_seed=getattr(record, "feedback_seed", None),
             created_at=record.created_at,
             completed_at=record.completed_at,
         )

@@ -20,7 +20,7 @@ class OpenAIProvider(LLMProvider):
             api_key=api_key or os.getenv("AZURE_OPENAI_API_KEY"),
             azure_endpoint=azure_endpoint or os.getenv(
                 "AZURE_OPENAI_ENDPOINT",
-                "https://tedcherve-6038-resource.cognitiveservices.azure.com/"
+                "https://<your-resource>.openai.azure.com/",
             ),
             api_version=api_version or os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
         )

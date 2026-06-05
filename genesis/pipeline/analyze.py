@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from genesis.llm.provider import LLMProvider
 from genesis.models.agent import DomainModel
@@ -63,11 +63,18 @@ class AnalyzeStage:
     def __init__(self, llm: LLMProvider) -> None:
         self.llm = llm
 
-    async def run(self, problem_description: str) -> DomainModel:
+    async def run(
+        self,
+        problem_description: str,
+        feedback_seed: Optional[str] = None,
+    ) -> DomainModel:
         """Run the ANALYZE stage — research the domain before analysis.
 
         Args:
             problem_description: Natural language description of the problem.
+            feedback_seed: Optional compact guidance from a prior build's
+                feedback report. Injected as steering context for rebuilds
+                without mutating the original problem statement.
 
         Returns:
             A validated DomainModel instance.
@@ -87,6 +94,14 @@ class AnalyzeStage:
                 f"Problem: {problem_description}"
             )
             logger.info("ANALYZE grounded with %d web results", len(web_context.results))
+
+        if feedback_seed:
+            user_prompt = (
+                f"{user_prompt}\n\n"
+                f"This is a rebuild. Apply the following production feedback "
+                f"when shaping the domain model:\n{feedback_seed}"
+            )
+            logger.info("ANALYZE seeded with prior-build feedback")
 
         last_error: Exception | None = None
 

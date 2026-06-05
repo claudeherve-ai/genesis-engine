@@ -1,0 +1,28 @@
+{
+  "name": "support_triage_router",
+  "problem": "Build a customer support system that triages incoming tickets, looks up account data, and escalates billing disputes to a specialist.",
+  "architecture": {
+    "topology": "router",
+    "agents": [
+      {
+        "name": "triage_router",
+        "role": "Classify incoming support tickets and route them to the right specialist",
+        "tools": []
+      },
+      {
+        "name": "account_lookup",
+        "role": "Look up customer account records and recent activity",
+        "tools": []
+      },
+      {
+        "name": "billing_specialist",
+        "role": "Resolve billing disputes and issue adjustments",
+        "tools": []
+      }
+    ],
+    "routing": {"strategy": "intent_classification", "confidence_threshold": 0.6}
+  },
+  "expected_roles": ["triage", "account", "billing"],
+  "expected_tools": ["database_query"],
+  "min_agents": 3
+}

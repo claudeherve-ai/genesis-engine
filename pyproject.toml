@@ -1,6 +1,6 @@
 [project]
 name = "genesis-engine"
-version = "0.1.0"
+version = "0.4.0"
 description = "Meta-agent factory — AI that builds AI. Describe a problem, get a deployed multi-agent system."
 requires-python = ">=3.11"
 dependencies = [
@@ -18,6 +18,8 @@ dependencies = [
     "azure-identity>=1.16.0",
     "azure-keyvault-secrets>=4.8.0",
     "sse-starlette>=2.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
 ]
 
 [project.optional-dependencies]

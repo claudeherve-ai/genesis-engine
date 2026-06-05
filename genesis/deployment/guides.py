@@ -3,10 +3,6 @@
 Generates step-by-step deployment instructions, Dockerfiles,
 docker-compose files, Kubernetes manifests, and cloud deployment
 configs for generated multi-agent systems.
-
-CITATION: Built for real deployment, not just JSON export.
-Session: Hermes Agent, 2026-06-01.
-BACK-LINK: /home/tedch/genesis-engine/
 """
 
 from __future__ import annotations
@@ -366,7 +362,7 @@ python main.py
                 "agents.json": json.dumps([a.model_dump() for a in agents], indent=2),
                 "deploy.sh": f"""#!/bin/bash
 # Deploy to AgentSystem
-ENDPOINT="${{AGENTSYSTEM_ENDPOINT:-https://ca-agentsystem.mangoflower-d4b306b2.eastus2.azurecontainerapps.io}}"
+ENDPOINT="${{AGENTSYSTEM_ENDPOINT:-http://localhost:8080}}"
 API_KEY="${{AGENTSYSTEM_API_KEY}}"
 
 if [ -z "$API_KEY" ]; then

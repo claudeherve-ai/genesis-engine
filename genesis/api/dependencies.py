@@ -13,12 +13,14 @@ from genesis.adapters.agentsystem import create_agentsystem_adapter
 
 @lru_cache()
 def get_llm_provider() -> LLMProvider:
-    """Get the configured LLM provider.
+    """Get the configured LLM provider, metered for cost/token tracking.
 
     Uses Azure Foundry (Azure OpenAI) with AZURE_OPENAI_API_KEY.
     """
     if os.getenv("AZURE_OPENAI_API_KEY"):
-        return OpenAIProvider()
+        from genesis.observability.cost import CostTrackingProvider
+
+        return CostTrackingProvider(OpenAIProvider())
     raise RuntimeError(
         "No LLM provider configured. Set AZURE_OPENAI_API_KEY."
     )
@@ -44,5 +46,21 @@ def get_build_repo():
     session = get_session()
     try:
         yield BuildRepository(session)
+    finally:
+        session.close()
+
+
+def get_knowledge_store():
+    """Get a KnowledgeStore with a fresh session.
+
+    Embeddings are computed via the configured LLM provider when one is
+    available; otherwise the store falls back to deterministic TF-IDF so
+    ingestion and search work offline with no API keys.
+    """
+    from genesis.knowledge.store import KnowledgeStore
+
+    session = get_session()
+    try:
+        yield KnowledgeStore(session)
     finally:
         session.close()

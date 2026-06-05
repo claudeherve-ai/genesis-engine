@@ -1,0 +1,23 @@
+{
+  "name": "research_assistant_sequential",
+  "problem": "Build a research assistant that searches the web and academic papers, then drafts a cited summary.",
+  "architecture": {
+    "topology": "sequential",
+    "agents": [
+      {
+        "name": "web_researcher",
+        "role": "Search the web for current information on a topic",
+        "tools": []
+      },
+      {
+        "name": "paper_researcher",
+        "role": "Search academic papers and extract key findings",
+        "tools": []
+      }
+    ],
+    "routing": {"strategy": "pipeline"}
+  },
+  "expected_roles": ["web", "paper"],
+  "expected_tools": ["web_search", "arxiv_search"],
+  "min_agents": 2
+}
