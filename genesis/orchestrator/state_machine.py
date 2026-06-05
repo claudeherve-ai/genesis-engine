@@ -13,12 +13,13 @@ from typing import Any, Dict, List, Optional
 from genesis.llm.provider import LLMProvider
 from genesis.adapters.base import DeploymentTarget, DeploymentResult
 from genesis.models.build import Build, BuildStatus, PipelineStage
-from genesis.models.agent import DomainModel, AgentArchitecture, AgentDefinition
+from genesis.models.agent import DomainModel, AgentArchitecture, AgentDefinition, TestScenario
 from genesis.models.test_results import TestResults
 from genesis.pipeline.analyze import AnalyzeStage
 from genesis.pipeline.architect import ArchitectStage
 from genesis.pipeline.build import BuildStage as BuildPipelineStage
 from genesis.pipeline.test import TestStage as TestPipelineStage
+from genesis.runtime.sandbox import AgentRuntime
 from genesis.pipeline.verify import verify_agents
 from genesis.pipeline.deploy import DeployStage
 from genesis.storage.repository import ProjectRepository, BuildRepository
@@ -93,7 +94,8 @@ class Orchestrator:
         self._analyze_stage = AnalyzeStage(llm)
         self._architect_stage = ArchitectStage(llm)
         self._build_stage = BuildPipelineStage(llm)
-        self._test_stage = TestPipelineStage(llm)
+        self._runtime = AgentRuntime(llm)
+        self._test_stage = TestPipelineStage(llm, runtime=self._runtime)
         self._deploy_stage = DeployStage(target)
 
     # ------------------------------------------------------------------
@@ -135,6 +137,8 @@ class Orchestrator:
             artifacts["agents"] = [a.model_dump() for a in agents]
             build.test_results = test_results.model_dump()
             build.retries = retries
+            if test_results.transcripts:
+                artifacts["test_transcripts"] = test_results.transcripts
 
             # --- Verification: double-check agent quality ---
             verification = await verify_agents(
@@ -223,63 +227,75 @@ class Orchestrator:
         """
         feedback: Optional[TestResults] = None
 
-        while True:
-            # -- BUILD --
-            self._transition(build, PipelineStage.BUILD, 0.4)
-            build.retries = retries
-            await self._persist(build)
+        # Provide the TEST stage with concrete, executable scenarios so it runs
+        # agents for real. Reset afterwards so the stage instance stays clean.
+        scenarios = [
+            TestScenario(**s) for s in architecture.test_scenarios
+        ]
+        if hasattr(self._test_stage, "set_scenarios"):
+            self._test_stage.set_scenarios(scenarios)
 
-            agents = await self._build_stage.run(architecture, feedback=feedback)
+        try:
+            while True:
+                # -- BUILD --
+                self._transition(build, PipelineStage.BUILD, 0.4)
+                build.retries = retries
+                await self._persist(build)
 
-            self._transition(build, PipelineStage.BUILD, 0.6)
-            await self._persist(build)
+                agents = await self._build_stage.run(architecture, feedback=feedback)
 
-            # -- TEST --
-            self._transition(build, PipelineStage.TEST, 0.6)
-            await self._persist(build)
+                self._transition(build, PipelineStage.BUILD, 0.6)
+                await self._persist(build)
 
-            test_results = await self._test_stage.run(agents)
+                # -- TEST --
+                self._transition(build, PipelineStage.TEST, 0.6)
+                await self._persist(build)
 
-            # Check threshold via the model's own method (sets .passed)
-            test_results.check_threshold(self.test_threshold)
+                test_results = await self._test_stage.run(agents)
 
-            self._transition(build, PipelineStage.TEST, 0.8)
-            await self._persist(build)
+                # Check threshold via the model's own method (sets .passed)
+                test_results.check_threshold(self.test_threshold)
 
-            logger.info(
-                "TEST complete — build=%s score=%.2f passed=%s retries=%d",
-                build.id,
-                test_results.overall_score,
-                test_results.passed,
-                retries,
-            )
+                self._transition(build, PipelineStage.TEST, 0.8)
+                await self._persist(build)
 
-            if test_results.passed:
-                return agents, test_results, retries
-
-            # Not passed — can we retry?
-            if retries < self.max_retries:
-                retries += 1
-                feedback = test_results
-                logger.warning(
-                    "BUILD retry %d/%d — build=%s score=%.2f threshold=%.2f",
+                logger.info(
+                    "TEST complete — build=%s score=%.2f passed=%s retries=%d",
+                    build.id,
+                    test_results.overall_score,
+                    test_results.passed,
                     retries,
-                    self.max_retries,
+                )
+
+                if test_results.passed:
+                    return agents, test_results, retries
+
+                # Not passed — can we retry?
+                if retries < self.max_retries:
+                    retries += 1
+                    feedback = test_results
+                    logger.warning(
+                        "BUILD retry %d/%d — build=%s score=%.2f threshold=%.2f",
+                        retries,
+                        self.max_retries,
+                        build.id,
+                        test_results.overall_score,
+                        self.test_threshold,
+                    )
+                    continue
+
+                # Max retries exhausted, but return what we have.
+                # Caller can decide whether to fail the whole pipeline or deploy.
+                logger.error(
+                    "BUILD retries exhausted — build=%s score=%.2f threshold=%.2f",
                     build.id,
                     test_results.overall_score,
                     self.test_threshold,
                 )
-                continue
-
-            # Max retries exhausted, but return what we have.
-            # Caller can decide whether to fail the whole pipeline or deploy.
-            logger.error(
-                "BUILD retries exhausted — build=%s score=%.2f threshold=%.2f",
-                build.id,
-                test_results.overall_score,
-                self.test_threshold,
-            )
-            return agents, test_results, retries
+                return agents, test_results, retries
+        finally:
+            if hasattr(self._test_stage, "set_scenarios"):
+                self._test_stage.set_scenarios([])
 
     async def _run_deploy(
         self,

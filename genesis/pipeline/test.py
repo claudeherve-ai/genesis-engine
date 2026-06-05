@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 
 from genesis.llm.provider import LLMProvider
-from genesis.models.agent import AgentDefinition
+from genesis.models.agent import AgentDefinition, TestScenario
 from genesis.models.test_results import TestResults, TestFailure
+from genesis.runtime.sandbox import AgentRuntime, RuntimeReport
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +84,35 @@ class TestStage:
 
     Args:
         llm: An LLMProvider instance for making completion requests.
+        runtime: Optional AgentRuntime for REAL execution. When concrete
+            scenarios are set via ``set_scenarios()``, the stage executes
+            agents for real and scores from reality; otherwise it falls back
+            to LLM-roleplay simulation.
     """
 
-    def __init__(self, llm: LLMProvider) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        runtime: Optional[AgentRuntime] = None,
+    ) -> None:
         self.llm = llm
+        self._runtime = runtime or AgentRuntime(llm)
+        self.scenarios: List[TestScenario] = []
+
+    def set_scenarios(self, scenarios: List[TestScenario]) -> None:
+        """Set the concrete scenarios to execute on the next ``run``.
+
+        When non-empty, ``run`` performs real instrumented execution. Set to
+        an empty list to restore LLM-roleplay simulation behavior.
+        """
+        self.scenarios = list(scenarios)
 
     async def run(self, agents: List[AgentDefinition]) -> TestResults:
         """Run the TEST stage.
+
+        If concrete scenarios are present, agents are executed for real via
+        the runtime sandbox and scored deterministically. Otherwise the stage
+        falls back to LLM-roleplay simulation.
 
         Args:
             agents: List of agent definitions to evaluate.
@@ -98,8 +121,112 @@ class TestStage:
             A TestResults instance with scores and failure details.
 
         Raises:
-            ValueError: If the LLM fails to produce valid JSON after all retries.
+            ValueError: If simulation mode fails to produce valid JSON after
+                all retries.
         """
+        scenarios = list(self.scenarios)
+        if scenarios:
+            return await self._run_execution(agents, scenarios)
+        return await self._run_simulation(agents)
+
+    # ------------------------------------------------------------------
+    # REAL execution path
+    # ------------------------------------------------------------------
+
+    async def _run_execution(
+        self,
+        agents: List[AgentDefinition],
+        scenarios: List[TestScenario],
+    ) -> TestResults:
+        """Execute agents for real and convert the report to TestResults."""
+        report = await self._runtime.execute(agents, scenarios)
+        results = self._build_execution_results(report)
+        logger.info(
+            "TEST stage complete (execution) — score=%.2f, scenarios=%d/%d, "
+            "failures=%d",
+            results.overall_score,
+            results.scenarios_passed,
+            results.scenarios_run,
+            results.failure_count,
+        )
+        return results
+
+    @staticmethod
+    def _build_execution_results(report: RuntimeReport) -> TestResults:
+        """Convert a RuntimeReport into TestResults (numeric metrics only)."""
+        results = report.results
+        n = max(len(results), 1)
+
+        avg_precision = sum(r.precision for r in results) / n
+        avg_tool_accuracy = sum(r.tool_accuracy for r in results) / n
+        routing_accuracy = (
+            sum(1 for r in results if r.routing_correct) / n
+        )
+        avg_latency = report.total_latency_ms / n
+
+        metrics = {
+            "precision": round(avg_precision, 4),
+            "tool_accuracy": round(avg_tool_accuracy, 4),
+            "routing_accuracy": round(routing_accuracy, 4),
+            "avg_latency_ms": round(avg_latency, 2),
+        }
+
+        failures: List[TestFailure] = []
+        for r in results:
+            if r.passed:
+                continue
+            expected_parts = []
+            if r.expected_total:
+                expected_parts.append(
+                    f"{r.expected_total} required phrase(s)"
+                )
+            if r.tools_expected:
+                expected_parts.append(f"tools={r.tools_expected}")
+            if r.route_to:
+                expected_parts.append(f"route_to={r.route_to}")
+            expected = "; ".join(expected_parts) or "quality threshold"
+
+            actual_parts = [
+                f"found {r.expected_found}/{r.expected_total} phrases",
+                f"tools_executed={r.tools_executed}",
+                f"routed_to={r.routed_agent}",
+            ]
+            if r.errors:
+                actual_parts.append(f"errors={r.errors[:3]}")
+            actual = "; ".join(actual_parts)
+
+            if r.route_to and not r.routing_correct:
+                metric = "routing_accuracy"
+            elif r.tools_expected and set(r.tools_expected) - set(r.tools_executed):
+                metric = "tool_accuracy"
+            else:
+                metric = "precision"
+
+            failures.append(TestFailure(
+                scenario=r.scenario_name,
+                agent=r.agent_name,
+                expected=expected,
+                actual=actual,
+                metric=metric,
+            ))
+
+        return TestResults(
+            scenarios_run=report.scenarios_run,
+            scenarios_passed=report.scenarios_passed,
+            overall_score=report.overall_score,
+            metrics=metrics,
+            failures=failures,
+            passed=False,  # threshold applied by orchestrator via check_threshold
+            mode="execution",
+            transcripts=report.transcripts(),
+        )
+
+    # ------------------------------------------------------------------
+    # LLM-roleplay simulation path (fallback)
+    # ------------------------------------------------------------------
+
+    async def _run_simulation(self, agents: List[AgentDefinition]) -> TestResults:
+        """Run the legacy LLM-roleplay evaluation."""
         user_prompt = self._build_prompt(agents)
         last_error: Exception | None = None
 

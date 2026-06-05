@@ -23,6 +23,8 @@ class TestResults(BaseModel):
     metrics: Dict[str, float] = Field(default_factory=dict)
     failures: List[TestFailure] = Field(default_factory=list)
     passed: bool = False
+    mode: str = "simulation"  # "simulation" (LLM roleplay) or "execution" (real runtime)
+    transcripts: List[Dict] = Field(default_factory=list)
 
     @property
     def pass_rate(self) -> float:

@@ -76,6 +76,25 @@ class DomainModel(BaseModel):
         return len(self.actors)
 
 
+class TestScenario(BaseModel):
+    """A concrete, executable test scenario for the runtime sandbox.
+
+    Unlike the legacy LLM-roleplay scenarios (free-form strings), a
+    TestScenario carries explicit, deterministic success criteria so the
+    runtime can score from reality rather than from an LLM's opinion:
+
+    - ``expected_outputs``: substrings that MUST appear in the agent output.
+    - ``expected_tools``: tools the agent MUST actually invoke at runtime.
+    - ``route_to``: the agent that SHOULD handle this input (routing test).
+    """
+
+    name: str
+    input: str
+    expected_outputs: List[str] = Field(default_factory=list)
+    expected_tools: List[str] = Field(default_factory=list)
+    route_to: Optional[str] = None
+
+
 class AgentArchitecture(BaseModel):
     """Output of ARCHITECT stage — agent topology design."""
 
@@ -89,6 +108,13 @@ class AgentArchitecture(BaseModel):
     routing: Dict[str, Any] = Field(
         default_factory=dict,
         description="Routing configuration: {strategy, confidence_threshold, ...}"
+    )
+    test_scenarios: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Concrete executable scenarios: "
+            "{name, input, expected_outputs, expected_tools, route_to}"
+        ),
     )
 
     @property
