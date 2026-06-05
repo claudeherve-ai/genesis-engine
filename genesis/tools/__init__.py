@@ -19,6 +19,8 @@ from urllib.parse import quote_plus
 import httpx
 from bs4 import BeautifulSoup
 
+from genesis.tools.search import SearchHit, get_search_provider
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,46 +31,47 @@ class SearchResult:
     snippet: str
     source: str = "web"
 
+    def citation(self) -> dict:
+        return {"title": self.title, "url": self.url, "source": self.source}
+
 
 @dataclass
 class WebContext:
     query: str
     results: List[SearchResult] = field(default_factory=list)
     fetched_content: List[str] = field(default_factory=list)
+    provider: str = ""
+    error: Optional[str] = None
+
+    def citations(self) -> List[dict]:
+        """Structured citations for every result (provenance, no unattributed claims)."""
+        return [r.citation() for r in self.results]
 
 
 async def web_search(query: str, max_results: int = 5) -> List[SearchResult]:
-    """Search the web using DuckDuckGo (free, no API key)."""
-    results = []
+    """Search the web via the best available provider (Tavily or DuckDuckGo).
+
+    Never raises — failures are logged with context and surfaced as an empty
+    list so the pipeline degrades gracefully instead of crashing.
+    """
+    provider = get_search_provider()
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:120.0) Gecko/20100101 Firefox/120.0"
-            }
-            r = await client.get(url, headers=headers)
-            r.raise_for_status()
-
-            soup = BeautifulSoup(r.text, "html.parser")
-            for item in soup.select(".result")[:max_results]:
-                title_el = item.select_one(".result__title")
-                snippet_el = item.select_one(".result__snippet")
-                link_el = item.select_one(".result__url")
-
-                title = title_el.get_text(strip=True) if title_el else ""
-                snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-                link = link_el.get("href", "") if link_el else ""
-
-                if title and link:
-                    results.append(SearchResult(
-                        title=title, url=link, snippet=snippet,
-                    ))
-
-        logger.info("Web search '%s': %d results", query[:50], len(results))
+        hits: List[SearchHit] = await provider.search(query, max_results=max_results)
+        results = [
+            SearchResult(title=h.title, url=h.url, snippet=h.snippet, source=h.source)
+            for h in hits
+        ]
+        logger.info(
+            "Web search via %s '%s': %d results",
+            provider.name, query[:50], len(results),
+        )
+        return results
     except Exception as e:
-        logger.warning("Web search failed for '%s': %s", query[:50], e)
-
-    return results
+        logger.warning(
+            "Web search failed (provider=%s, query=%r): %s",
+            provider.name, query[:50], e,
+        )
+        return []
 
 
 async def web_fetch(url: str, max_chars: int = 3000) -> str:
@@ -97,10 +100,12 @@ async def web_fetch(url: str, max_chars: int = 3000) -> str:
 
 async def research_topic(query: str, fetch_depth: int = 2) -> WebContext:
     """Research a topic: search + fetch top results for deep context."""
-    context = WebContext(query=query)
+    provider = get_search_provider()
+    context = WebContext(query=query, provider=provider.name)
 
     context.results = await web_search(query, max_results=5)
     if not context.results:
+        context.error = "no_results"
         return context
 
     tasks = [web_fetch(r.url) for r in context.results[:fetch_depth]]
@@ -115,7 +120,8 @@ def format_context_for_prompt(context: WebContext, max_chars: int = 3000) -> str
     if not context.results:
         return ""
 
-    lines = [f"## Web Research: \"{context.query}\"", ""]
+    provider_note = f" (source: {context.provider})" if context.provider else ""
+    lines = [f"## Web Research: \"{context.query}\"{provider_note}", ""]
 
     for i, result in enumerate(context.results[:5]):
         lines.append(f"[{i+1}] {result.title}")
@@ -130,6 +136,10 @@ def format_context_for_prompt(context: WebContext, max_chars: int = 3000) -> str
             truncated = content[:max_chars // 2]
             lines.append(f"[Source {i+1}] {truncated}")
             lines.append("")
+
+    lines.append("## Citations (cite these — do not invent sources)")
+    for i, result in enumerate(context.results[:5]):
+        lines.append(f"[{i+1}] {result.url}")
 
     return "\n".join(lines)
 

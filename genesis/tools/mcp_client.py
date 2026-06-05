@@ -1,14 +1,18 @@
 """MCP (Model Context Protocol) client for Genesis Engine.
 
-Provides authoritative grounding from vendor documentation servers —
-Microsoft Docs, Microsoft Learn, GitHub, Context7, DeepWiki, HuggingFace.
-Ensures generated agents are grounded in real, up-to-date documentation
-rather than LLM hallucinations about tool capabilities.
+Provides authoritative grounding from vendor documentation servers so that
+generated agents are grounded in real, up-to-date documentation rather than
+LLM hallucinations about tool capabilities.
 
-Architecture mirrors AgentSystem's 3-tier MCP approach:
-  Tier 1 (ALWAYS ON, no auth): Microsoft Docs, Context7, DeepWiki, HuggingFace
-  Tier 2 (opt-in via env): GitHub, Notion, Sentry, Atlassian
-  Tier 3 (stdio via npx/uvx, auto-disabled if missing): Filesystem, Git, Fetch
+The flagship integration is the **official Microsoft Learn MCP server**
+(``https://learn.microsoft.com/api/mcp``), which speaks the MCP
+*streamable-HTTP* transport: an ``initialize`` handshake, an ``initialized``
+notification, then ``tools/call`` against ``microsoft_docs_search``. Responses
+may arrive as JSON or as Server-Sent-Events frames; both are parsed.
+
+Every transport failure degrades gracefully (logged with context, returns an
+empty result) so the pipeline never crashes when a server is unreachable —
+and so the whole stack runs offline in tests with a mocked transport.
 """
 
 from __future__ import annotations
@@ -24,6 +28,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_PROTOCOL_VERSION = "2025-06-18"
+_CLIENT_INFO = {"name": "genesis-engine", "version": "0.4.0"}
+
 
 @dataclass
 class MCPServer:
@@ -31,46 +38,35 @@ class MCPServer:
     url: str
     description: str
     tier: int
+    search_tool: str = "search"
+    query_arg: str = "query"
     tools: List[str] = field(default_factory=list)
     auth_env: str = ""
     enabled: bool = True
 
 
+# Only servers with REAL, reachable endpoints are enabled by default. The
+# Microsoft Learn MCP server is public and keyless. Others remain registered
+# for extension but stay disabled until a real endpoint/credential is wired,
+# so we never pretend to query a server that does not exist.
 MCP_SERVERS: Dict[str, MCPServer] = {
-    "microsoft_docs": MCPServer(
-        name="microsoft_docs",
-        url="https://mcp.microsoft.com/docs",
-        description="Official Microsoft documentation — Azure, .NET, PowerShell, Windows",
+    "microsoft_learn": MCPServer(
+        name="microsoft_learn",
+        url="https://learn.microsoft.com/api/mcp",
+        description="Official Microsoft Learn documentation — Azure, .NET, M365, Power Platform",
         tier=1,
-        tools=["search_docs", "get_doc"],
-    ),
-    "context7": MCPServer(
-        name="context7",
-        url="https://mcp.context7.com",
-        description="Latest official docs for any library/framework — always up to date",
-        tier=1,
-        tools=["resolve_library_id", "get_library_docs"],
-    ),
-    "deepwiki": MCPServer(
-        name="deepwiki",
-        url="https://mcp.deepwiki.com",
-        description="Semantic search across indexed GitHub repositories",
-        tier=1,
-        tools=["search_repos", "get_repo_docs"],
-    ),
-    "huggingface": MCPServer(
-        name="huggingface",
-        url="https://mcp.huggingface.co",
-        description="Model/dataset/paper search on HuggingFace Hub",
-        tier=1,
-        tools=["search_models", "search_datasets", "search_papers"],
+        search_tool="microsoft_docs_search",
+        query_arg="query",
+        tools=["microsoft_docs_search", "microsoft_docs_fetch"],
     ),
     "github": MCPServer(
         name="github",
-        url="https://api.github.com",
-        description="GitHub API — repos, issues, PRs, code search",
+        url="https://api.githubcopilot.com/mcp/",
+        description="GitHub MCP — repos, issues, PRs, code search",
         tier=2,
-        tools=["search_code", "get_repo", "search_issues", "get_file"],
+        search_tool="search_code",
+        query_arg="query",
+        tools=["search_code", "get_repository", "search_issues"],
         auth_env="GITHUB_TOKEN",
         enabled=False,
     ),
@@ -78,15 +74,15 @@ MCP_SERVERS: Dict[str, MCPServer] = {
 
 
 class MCPClient:
-    """Lightweight MCP client for querying vendor documentation servers."""
+    """MCP streamable-HTTP client for querying documentation servers."""
 
-    def __init__(self, timeout: float = 15.0):
+    def __init__(self, timeout: float = 20.0):
         self.timeout = timeout
         self._http: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=self.timeout)
+            self._http = httpx.AsyncClient(timeout=self.timeout, follow_redirects=True)
         return self._http
 
     async def close(self) -> None:
@@ -95,23 +91,24 @@ class MCPClient:
             self._http = None
 
     async def search_all(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Query every enabled MCP server and merge ranked results."""
         results: List[Dict[str, Any]] = []
         client = await self._get_client()
 
         for name, server in MCP_SERVERS.items():
             if not server.enabled:
                 continue
-            if server.tier == 2 and not os.getenv(server.auth_env):
+            if server.auth_env and not os.getenv(server.auth_env):
+                logger.debug("MCP server %s skipped: %s not set", name, server.auth_env)
                 continue
-
             try:
                 server_results = await self._query_server(client, server, query, max_results)
                 results.extend(server_results)
-            except Exception as e:
-                logger.debug("MCP server %s unavailable: %s", name, e)
+            except Exception as e:  # never let one server crash grounding
+                logger.info("MCP server %s unavailable (query=%r): %s", name, query[:50], e)
 
         results.sort(key=lambda r: r.get("score", 0), reverse=True)
-        return results[:max_results * 2]
+        return results[: max_results * 2]
 
     async def _query_server(
         self,
@@ -120,75 +117,155 @@ class MCPClient:
         query: str,
         max_results: int,
     ) -> List[Dict[str, Any]]:
-        try:
-            headers = {"Content-Type": "application/json"}
-            if server.auth_env:
-                token = os.getenv(server.auth_env, "")
-                if token:
-                    headers["Authorization"] = f"Bearer {token}"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if server.auth_env:
+            token = os.getenv(server.auth_env, "")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
 
-            payload = {
+        # 1) initialize handshake (captures session id if the server issues one)
+        init_resp = await client.post(
+            server.url,
+            headers=headers,
+            json={
                 "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": _PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": _CLIENT_INFO,
+                },
+            },
+        )
+        init_resp.raise_for_status()
+        session_id = init_resp.headers.get("Mcp-Session-Id") or init_resp.headers.get("mcp-session-id")
+        if session_id:
+            headers["Mcp-Session-Id"] = session_id
+
+        # 2) initialized notification (best-effort; ignore failures)
+        try:
+            await client.post(
+                server.url,
+                headers=headers,
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            )
+        except httpx.HTTPError:
+            pass
+
+        # 3) tools/call against the server's search tool
+        call_resp = await client.post(
+            server.url,
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
                 "method": "tools/call",
                 "params": {
-                    "name": "search" if "search" in str(server.tools) else server.tools[0],
-                    "arguments": {"query": query, "max_results": max_results},
+                    "name": server.search_tool,
+                    "arguments": {server.query_arg: query},
                 },
-                "id": 1,
-            }
+            },
+        )
+        call_resp.raise_for_status()
+        data = self._parse_response(call_resp)
+        return self._normalize_results(data, server.name)
 
-            try:
-                resp = await client.post(
-                    f"{server.url}/mcp",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            except (httpx.HTTPError, json.JSONDecodeError):
-                resp = await client.post(
-                    f"{server.url}/mcp",
-                    json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                return []
-
-            return self._normalize_results(data, server.name)
-
-        except Exception as e:
-            logger.debug("MCP server %s query failed: %s", server.name, e)
-            return []
+    @staticmethod
+    def _parse_response(resp: httpx.Response) -> Dict[str, Any]:
+        """Parse a JSON or text/event-stream MCP response into a dict."""
+        content_type = resp.headers.get("content-type", "")
+        text = resp.text
+        if "text/event-stream" in content_type or text.lstrip().startswith("event:"):
+            # SSE: collect the last JSON payload from `data:` lines.
+            payload: Dict[str, Any] = {}
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("data:"):
+                    chunk = line[len("data:"):].strip()
+                    if not chunk or chunk == "[DONE]":
+                        continue
+                    try:
+                        payload = json.loads(chunk)
+                    except json.JSONDecodeError:
+                        continue
+            return payload
+        try:
+            return resp.json()
+        except (json.JSONDecodeError, ValueError):
+            return {}
 
     @staticmethod
     def _normalize_results(data: Dict[str, Any], source: str) -> List[Dict[str, Any]]:
-        results = []
+        results: List[Dict[str, Any]] = []
+        if not isinstance(data, dict):
+            return results
+
+        # JSON-RPC error → surface nothing (logged upstream).
+        if "error" in data and "result" not in data:
+            logger.debug("MCP %s returned error: %s", source, data.get("error"))
+            return results
+
         raw = data.get("result", data)
+
+        # MCP tools/call result → {"content": [{"type": "text", "text": "..."}]}
+        if isinstance(raw, dict) and "content" in raw:
+            for block in raw.get("content", []):
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text", "")
+                if not text:
+                    continue
+                # Some servers return a JSON string list inside the text block.
+                parsed = MCPClient._maybe_json(text)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        results.append(MCPClient._coerce_item(item, source))
+                else:
+                    results.append({"content": text, "source": source, "score": 5.0})
+            return results
 
         if isinstance(raw, list):
             items = raw
         elif isinstance(raw, dict):
-            items = raw.get("content", raw.get("results", raw.get("items", [])))
+            items = raw.get("results", raw.get("items", []))
         else:
-            return []
+            return results
 
         for item in items:
-            if isinstance(item, str):
-                results.append({"content": item, "source": source, "score": 5.0})
-            elif isinstance(item, dict):
-                results.append({
-                    "title": item.get("title", item.get("name", "")),
-                    "content": item.get("text", item.get("content", item.get("snippet", ""))),
-                    "url": item.get("url", item.get("link", "")),
-                    "source": source,
-                    "score": float(item.get("score", item.get("relevance", 5.0))),
-                })
-
+            results.append(MCPClient._coerce_item(item, source))
         return results
+
+    @staticmethod
+    def _maybe_json(text: str) -> Any:
+        stripped = text.strip()
+        if stripped[:1] in ("[", "{"):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                return text
+        return text
+
+    @staticmethod
+    def _coerce_item(item: Any, source: str) -> Dict[str, Any]:
+        if isinstance(item, str):
+            return {"content": item, "source": source, "score": 5.0}
+        if isinstance(item, dict):
+            return {
+                "title": item.get("title", item.get("name", "")),
+                "content": item.get("content", item.get("text", item.get("snippet", ""))),
+                "url": item.get("url", item.get("contentUrl", item.get("link", ""))),
+                "source": source,
+                "score": float(item.get("score", item.get("relevance", 5.0))),
+            }
+        return {"content": str(item), "source": source, "score": 1.0}
 
 
 async def mcp_grounding(query: str) -> str:
-    """Query all MCP servers for authoritative grounding on a topic."""
+    """Query MCP servers for authoritative grounding on a topic."""
     client = MCPClient()
     try:
         results = await client.search_all(query)
@@ -201,8 +278,8 @@ async def mcp_grounding(query: str) -> str:
     lines = [f"## Authoritative Documentation (MCP): \"{query}\"", ""]
     seen = set()
 
-    for i, r in enumerate(results[:10]):
-        title = r.get("title", "Untitled")
+    for r in results[:10]:
+        title = r.get("title", "Untitled") or "Untitled"
         content = str(r.get("content", ""))[:400]
         url = r.get("url", "")
         source = r.get("source", "unknown")
@@ -224,30 +301,29 @@ async def mcp_grounding(query: str) -> str:
 async def research_agent_tools(agent_role: str, needed_tools: List[str]) -> str:
     """Research real tool capabilities for an agent being generated.
 
-    Queries MCP servers and web to find actual tool documentation,
-    APIs, and best practices — ensuring generated agents use real
-    tools rather than hallucinated ones.
+    Queries the MCP servers and the web to find actual tool documentation,
+    APIs, and best practices — ensuring generated agents use real tools
+    rather than hallucinated ones. Failures are logged (not silently
+    swallowed) but never abort generation.
     """
-    parts = []
+    parts: List[str] = []
 
-    # Search for each needed tool
     for tool in needed_tools:
         query = f"{tool} API documentation {agent_role}"
         try:
             mcp_text = await mcp_grounding(query)
             if mcp_text:
                 parts.append(mcp_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.info("MCP grounding failed for %r: %s", tool, e)
 
-        # Also search the web
         try:
             from genesis.tools import research_topic, format_context_for_prompt
             web_ctx = await research_topic(query)
             web_text = format_context_for_prompt(web_ctx)
             if web_text:
                 parts.append(web_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.info("Web research failed for %r: %s", tool, e)
 
     return "\n\n".join(parts) if parts else ""
