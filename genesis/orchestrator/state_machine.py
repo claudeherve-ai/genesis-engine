@@ -188,7 +188,10 @@ class Orchestrator:
         self._transition(build, PipelineStage.ANALYZE, 0.0)
         await self._persist(build)
 
-        domain_model = await self._analyze_stage.run(build.problem_description)
+        domain_model = await self._analyze_stage.run(
+            build.problem_description,
+            feedback_seed=build.feedback_seed,
+        )
 
         self._transition(build, PipelineStage.ANALYZE, 0.2)
         await self._persist(build)

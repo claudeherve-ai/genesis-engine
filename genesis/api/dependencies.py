@@ -48,3 +48,19 @@ def get_build_repo():
         yield BuildRepository(session)
     finally:
         session.close()
+
+
+def get_knowledge_store():
+    """Get a KnowledgeStore with a fresh session.
+
+    Embeddings are computed via the configured LLM provider when one is
+    available; otherwise the store falls back to deterministic TF-IDF so
+    ingestion and search work offline with no API keys.
+    """
+    from genesis.knowledge.store import KnowledgeStore
+
+    session = get_session()
+    try:
+        yield KnowledgeStore(session)
+    finally:
+        session.close()

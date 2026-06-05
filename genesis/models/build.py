@@ -41,6 +41,11 @@ class Build(BaseModel):
     test_results: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     retries: int = Field(0, ge=0)
+    # Rebuild lineage: the build this one was spawned from (if any), plus the
+    # compact feedback summary that seeded the rebuild. Full versioning and
+    # rollback live in the platform layer; this is lineage only.
+    parent_build_id: Optional[str] = None
+    feedback_seed: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

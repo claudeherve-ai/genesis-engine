@@ -52,13 +52,61 @@ class BuildRecord(Base):
     test_results = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
     retries = Column(Integer, default=0)
+    parent_build_id = Column(String, nullable=True, index=True)
+    feedback_seed = Column(Text, nullable=True)
     created_at = Column(DateTime)
     completed_at = Column(DateTime, nullable=True)
 
 
+class KnowledgeDocumentRecord(Base):
+    __tablename__ = "knowledge_documents"
+
+    id = Column(String, primary_key=True)
+    title = Column(String, nullable=False, default="")
+    text = Column(Text, nullable=False)
+    source = Column(String, nullable=True)
+    metadata_json = Column(JSON, default={})
+    created_at = Column(DateTime)
+
+
 def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables if they don't exist, then apply lightweight migrations.
+
+    SQLAlchemy's ``create_all`` will not add new columns to a table that
+    already exists in an older ``genesis.db``. We additively reconcile a small
+    set of known columns so upgrades are seamless and idempotent.
+    """
     Base.metadata.create_all(engine)
+    _apply_additive_migrations()
+
+
+# Columns added after initial release, by table. Each is applied with
+# ``ALTER TABLE ... ADD COLUMN`` only when missing (idempotent, additive-only).
+_ADDITIVE_COLUMNS = {
+    "builds": {
+        "parent_build_id": "VARCHAR",
+        "feedback_seed": "TEXT",
+    },
+}
+
+
+def _apply_additive_migrations() -> None:
+    if "sqlite" not in DATABASE_URL:
+        return
+    from sqlalchemy import inspect as _inspect, text as _text
+
+    inspector = _inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table, columns in _ADDITIVE_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table)}
+            for col_name, col_type in columns.items():
+                if col_name not in present:
+                    conn.execute(
+                        _text(f'ALTER TABLE {table} ADD COLUMN {col_name} {col_type}')
+                    )
 
 
 def get_session() -> Session:

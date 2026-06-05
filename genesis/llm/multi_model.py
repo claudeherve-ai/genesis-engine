@@ -1,10 +1,17 @@
 """Multi-model pipeline — different models for different cognitive tasks.
 
-Uses specialized models per pipeline stage to avoid single-model bias:
-- ANALYZE: GPT-5.4 (reasoning) + Claude (placeholder) + Gemini (placeholder)
-- ARCHITECT: Claude (creativity) + GPT-5.4
-- BUILD: GPT-5.4 (generation) + Claude (placeholder)
-- TEST: Gemini (evaluation) + GPT-5.4
+Routes each pipeline stage to a model suited to that cognitive task, with
+graceful degradation to the primary provider when secondaries are absent.
+
+- ANALYZE:   primary (reasoning) → Claude / Gemini if configured
+- ARCHITECT: Claude (creativity) → primary
+- BUILD:     primary (generation) → Claude / DeepSeek if configured
+- TEST:      Gemini (evaluation) → primary
+
+The primary provider (Azure OpenAI) is always registered. Anthropic Claude
+is a real, first-class secondary that activates when ANTHROPIC_API_KEY is set.
+Gemini and DeepSeek are honest extension points — drop in a provider module
+(genesis/llm/gemini.py / deepseek.py) and set the key to enable them.
 """
 
 from __future__ import annotations
@@ -32,8 +39,7 @@ class PipelineStage_:
     DEPLOY = "deploy"
 
 
-# Primary: what we have (OpenAI/Azure via gpt-5.4)
-# Secondary: placeholders for Anthropic Claude, Google Gemini, DeepSeek
+# Primary: Azure OpenAI (always registered). Secondaries activate by key.
 
 class ModelRegistry:
     """Registry of available models with their specializations."""
@@ -78,10 +84,11 @@ class ModelRegistry:
 
 
 def create_model_registry(primary: LLMProvider) -> ModelRegistry:
-    """Create a model registry with primary + placeholder secondaries.
+    """Create a model registry with the primary provider + any configured secondaries.
 
-    Primary: the OpenAI/Azure provider you already have.
-    Secondaries: placeholders that activate when you add API keys.
+    Primary: the OpenAI/Azure provider you already have (always registered).
+    Secondaries: real providers that activate when their API key is present
+    (Anthropic today; Gemini/DeepSeek when their provider modules are added).
     """
     registry = ModelRegistry()
 
@@ -95,37 +102,51 @@ def create_model_registry(primary: LLMProvider) -> ModelRegistry:
         PipelineStage_.DEPLOY,
     ])
 
-    # Check for secondary models
+    # Secondary model: Anthropic Claude — a real, first-class provider in
+    # genesis. Activates automatically when ANTHROPIC_API_KEY is set.
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if anthropic_key and "PLACEHOLDER" not in anthropic_key:
         try:
-            from oracle.prediction.ensemble import AnthropicProvider
+            from genesis.llm.anthropic import AnthropicProvider
+
             registry.register("anthropic", AnthropicProvider(), [
                 PipelineStage_.ANALYZE, PipelineStage_.ARCHITECT,
                 PipelineStage_.BUILD,
             ])
-        except ImportError:
-            logger.debug("Anthropic provider not available")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Anthropic provider unavailable: %s", exc)
 
+    # Gemini / DeepSeek are honest extension points: a provider module is
+    # imported only if it exists. Drop a `genesis/llm/gemini.py` (exporting
+    # GeminiProvider) and set GEMINI_API_KEY to light it up — no code change
+    # here required. Until then these branches are inert no-ops.
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if gemini_key and "PLACEHOLDER" not in gemini_key:
         try:
-            from oracle.prediction.ensemble import GeminiProvider
+            from genesis.llm.gemini import GeminiProvider  # type: ignore
+
             registry.register("gemini", GeminiProvider(), [
                 PipelineStage_.ANALYZE, PipelineStage_.TEST,
             ])
         except ImportError:
-            logger.debug("Gemini provider not available")
+            logger.info(
+                "GEMINI_API_KEY set but genesis.llm.gemini not installed — "
+                "skipping (add the provider module to enable)."
+            )
 
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
     if deepseek_key and "PLACEHOLDER" not in deepseek_key:
         try:
-            from oracle.prediction.ensemble import DeepSeekProvider
+            from genesis.llm.deepseek import DeepSeekProvider  # type: ignore
+
             registry.register("deepseek", DeepSeekProvider(), [
                 PipelineStage_.ANALYZE, PipelineStage_.BUILD,
             ])
         except ImportError:
-            logger.debug("DeepSeek provider not available")
+            logger.info(
+                "DEEPSEEK_API_KEY set but genesis.llm.deepseek not installed — "
+                "skipping (add the provider module to enable)."
+            )
 
     logger.info(
         "Model registry: %d models — %s",

@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from genesis.models.project import Project, ProjectCreate, ProjectUpdate
 from genesis.models.build import Build, BuildRequest, GenerateRequest, BuildStatus
+from pydantic import BaseModel, Field
 from genesis.storage.repository import ProjectRepository, BuildRepository
 from genesis.orchestrator.state_machine import Orchestrator
 from genesis.api.dependencies import (
@@ -25,10 +26,12 @@ from genesis.api.dependencies import (
     get_build_repo,
     get_llm_provider,
     get_deployment_target,
+    get_knowledge_store,
 )
 from genesis.security.auth import require_user, require_admin, Principal
 from genesis.security.secrets import encrypt_config_secrets, decrypt_config_secrets
 from genesis.observability.cost import get_cost_tracker
+from genesis.feedback.collector import FeedbackCollector, AgentMetrics
 from genesis.tools.catalog import (
     get_tool,
     list_tools,
@@ -447,3 +450,253 @@ async def _run_pipeline(build: Build) -> None:
     finally:
         if session:
             session.close()
+
+
+# ────────────────────────────────────────────────────
+# Knowledge base (persistent memory / grounding)
+# ────────────────────────────────────────────────────
+
+
+class KnowledgeIngestRequest(BaseModel):
+    """Ingest a document into the persistent knowledge store."""
+
+    title: str = Field(..., min_length=1, max_length=500)
+    text: str = Field(..., min_length=1, max_length=200_000)
+    source: Optional[str] = Field(None, max_length=1000)
+    metadata: Optional[dict] = None
+
+
+@router.post("/knowledge", status_code=201)
+async def ingest_knowledge(
+    body: KnowledgeIngestRequest,
+    store=Depends(get_knowledge_store),
+    _: Principal = Depends(require_user),
+):
+    """Ingest a document into the persistent knowledge store.
+
+    Ingested documents become available for retrieval-augmented grounding
+    so the pipeline can cite real organizational knowledge instead of
+    guessing.
+    """
+    try:
+        doc_id = store.ingest(
+            title=body.title,
+            text=body.text,
+            source=body.source,
+            metadata=body.metadata,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": doc_id, "title": body.title, "total": store.count()}
+
+
+@router.get("/knowledge/search")
+async def search_knowledge(
+    q: str = Query(..., min_length=1, description="Search query"),
+    k: int = Query(5, ge=1, le=50, description="Max results"),
+    store=Depends(get_knowledge_store),
+):
+    """Search the persistent knowledge store (deterministic TF-IDF offline)."""
+    results = store.search(q, k=k)
+    return {
+        "query": q,
+        "items": [
+            {
+                "id": doc.id,
+                "title": doc.title,
+                "source": doc.source,
+                "score": round(score, 6),
+                "snippet": doc.text[:280],
+            }
+            for doc, score in results
+        ],
+        "total": len(results),
+    }
+
+
+# ────────────────────────────────────────────────────
+# Feedback loop → auto-rebuild lineage
+# ────────────────────────────────────────────────────
+
+MAX_REBUILD_DEPTH = 3
+_feedback_collector = FeedbackCollector()
+
+
+class FeedbackSubmitRequest(BaseModel):
+    """Production metrics reported for one agent in a build."""
+
+    agent_name: str = Field(..., min_length=1, max_length=200)
+    agent_version: str = Field("", max_length=200)
+    total_requests: int = Field(0, ge=0)
+    successful_responses: int = Field(0, ge=0)
+    avg_latency_ms: float = Field(0.0, ge=0.0)
+    avg_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    error_rate: float = Field(0.0, ge=0.0, le=1.0)
+    user_satisfaction: float = Field(0.0, ge=0.0, le=1.0)
+    tool_usage: dict = Field(default_factory=dict)
+    common_escalations: list = Field(default_factory=list)
+
+
+class RebuildRequest(BaseModel):
+    """Optional overrides for a feedback-seeded rebuild."""
+
+    feedback_seed: Optional[str] = Field(
+        None,
+        max_length=4000,
+        description="Compact guidance injected into the rebuild. "
+        "Defaults to the generated feedback summary.",
+    )
+
+
+def _build_agent_names(build: Build) -> list:
+    """Derive agent names from a build's BUILD-stage artifacts."""
+    if not build.artifacts:
+        return []
+    return [
+        a.get("name")
+        for a in build.artifacts.get("agents", [])
+        if isinstance(a, dict) and a.get("name")
+    ]
+
+
+@router.post("/builds/{build_id}/feedback", status_code=201)
+async def submit_feedback(
+    build_id: str,
+    body: FeedbackSubmitRequest,
+    build_repo: BuildRepository = Depends(get_build_repo),
+    _: Principal = Depends(require_user),
+):
+    """Record production metrics for one of a build's agents."""
+    build = await build_repo.get(build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+    metrics = AgentMetrics(
+        agent_name=body.agent_name,
+        agent_version=body.agent_version,
+        total_requests=body.total_requests,
+        successful_responses=body.successful_responses,
+        avg_latency_ms=body.avg_latency_ms,
+        avg_confidence=body.avg_confidence,
+        error_rate=body.error_rate,
+        user_satisfaction=body.user_satisfaction,
+        tool_usage=body.tool_usage,
+        common_escalations=body.common_escalations,
+    )
+    _feedback_collector.record_metrics(metrics)
+    return {"recorded": True, "build_id": build_id, "agent_name": body.agent_name}
+
+
+@router.get("/builds/{build_id}/feedback")
+async def get_feedback(
+    build_id: str,
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Generate a feedback report from recorded metrics for this build."""
+    build = await build_repo.get(build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+
+    agent_names = _build_agent_names(build)
+    report = _feedback_collector.generate_report(build_id, agent_names)
+    seed = _feedback_collector.feed_back_to_generator(report)
+    return {
+        "build_id": build_id,
+        "agent_names": agent_names,
+        "overall_score": report.overall_score,
+        "insights": [
+            {
+                "agent_name": i.agent_name,
+                "category": i.category,
+                "severity": i.severity,
+                "insight": i.insight,
+                "suggested_fix": i.suggested_fix,
+            }
+            for i in report.insights
+        ],
+        "recommendations": report.recommendations,
+        "rebuild_seed": seed,
+    }
+
+
+async def _rebuild_depth(build: Build, build_repo: BuildRepository) -> int:
+    """Count how many ancestors this build chain already has."""
+    depth = 0
+    parent_id = build.parent_build_id
+    while parent_id and depth < MAX_REBUILD_DEPTH + 1:
+        parent = await build_repo.get(parent_id)
+        if not parent:
+            break
+        depth += 1
+        parent_id = parent.parent_build_id
+    return depth
+
+
+@router.post("/builds/{build_id}/rebuild", status_code=202)
+async def rebuild(
+    build_id: str,
+    body: RebuildRequest,
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    build_repo: BuildRepository = Depends(get_build_repo),
+    _: Principal = Depends(require_user),
+):
+    """Spawn a feedback-seeded child build from a finished build.
+
+    Lineage only — the child records its `parent_build_id` and the
+    `feedback_seed` that informed the rebuild. Guards against runaway
+    self-rebuilding via MAX_REBUILD_DEPTH and refuses to rebuild a build
+    that is still running.
+    """
+    parent = await build_repo.get(build_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Build not found")
+    if not parent.is_terminal:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot rebuild a build that is still running.",
+        )
+
+    depth = await _rebuild_depth(parent, build_repo)
+    if depth >= MAX_REBUILD_DEPTH:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Rebuild depth limit reached (max {MAX_REBUILD_DEPTH}).",
+        )
+
+    # Derive a feedback seed if the caller did not supply one.
+    seed = body.feedback_seed
+    if not seed:
+        report = _feedback_collector.generate_report(
+            build_id, _build_agent_names(parent)
+        )
+        if report.recommendations:
+            seed = " | ".join(report.recommendations[:5])
+
+    child = Build(
+        project_id=parent.project_id,
+        problem_description=parent.problem_description,
+        target=parent.target,
+        target_config=parent.target_config,
+        parent_build_id=parent.id,
+        feedback_seed=seed,
+    )
+    await build_repo.create(child)
+
+    project = await project_repo.get(parent.project_id)
+    if project:
+        project.build_count += 1
+        project.last_build_id = child.id
+        project.status = "building"
+        await project_repo.update(project)
+
+    asyncio.create_task(_run_pipeline(child))
+
+    return {
+        "build_id": child.id,
+        "parent_build_id": parent.id,
+        "feedback_seed": seed,
+        "rebuild_depth": depth + 1,
+        "status": "queued",
+        "status_url": f"/v1/builds/{child.id}",
+        "logs_url": f"/v1/builds/{child.id}/logs",
+    }

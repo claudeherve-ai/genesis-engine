@@ -100,6 +100,8 @@ class BuildRepository:
             test_results=build.test_results,
             error=build.error,
             retries=build.retries,
+            parent_build_id=build.parent_build_id,
+            feedback_seed=build.feedback_seed,
             created_at=build.created_at,
             completed_at=build.completed_at,
         )
@@ -152,6 +154,8 @@ class BuildRepository:
             test_results=record.test_results,
             error=record.error,
             retries=record.retries or 0,
+            parent_build_id=getattr(record, "parent_build_id", None),
+            feedback_seed=getattr(record, "feedback_seed", None),
             created_at=record.created_at,
             completed_at=record.completed_at,
         )
