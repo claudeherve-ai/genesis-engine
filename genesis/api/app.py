@@ -68,6 +68,14 @@ async def root():
     return {"name": "Genesis Engine", "version": "0.4.0", "status": "running", "docs": "/docs"}
 
 
+@app.get("/docs-guide")
+async def docs_guide():
+    guide_path = os.path.join(os.path.dirname(__file__), "..", "ui", "docs.html")
+    if os.path.isfile(guide_path):
+        return FileResponse(guide_path, media_type="text/html")
+    return {"name": "Genesis Engine", "version": "0.4.0", "docs": "/docs"}
+
+
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
