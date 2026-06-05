@@ -33,6 +33,7 @@ class ProjectRecord(Base):
     status = Column(String, default="active")
     build_count = Column(Integer, default=0)
     last_build_id = Column(String, nullable=True)
+    active_build_id = Column(String, nullable=True)
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
 
@@ -86,6 +87,9 @@ _ADDITIVE_COLUMNS = {
     "builds": {
         "parent_build_id": "VARCHAR",
         "feedback_seed": "TEXT",
+    },
+    "projects": {
+        "active_build_id": "VARCHAR",
     },
 }
 

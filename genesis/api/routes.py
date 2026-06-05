@@ -227,6 +227,20 @@ async def stream_build_logs(
                 }
                 break
 
+            # Paused for human approval — emit a distinct event and exit so
+            # polling clients don't hang forever waiting for a terminal state.
+            if build.is_paused:
+                yield {
+                    "event": "awaiting_approval",
+                    "data": json.dumps({
+                        "build_id": build.id,
+                        "status": build.status.value,
+                        "approve_url": f"/v1/builds/{build.id}/approve",
+                        "reject_url": f"/v1/builds/{build.id}/reject",
+                    }),
+                }
+                break
+
             await asyncio.sleep(1)
 
     return EventSourceResponse(event_generator())
@@ -431,9 +445,14 @@ async def _run_pipeline(build: Build) -> None:
         # Update project status
         project = await project_repo.get(result.project_id)
         if project:
-            project.status = (
-                "deployed" if result.status == BuildStatus.COMPLETED else "failed"
-            )
+            if result.status == BuildStatus.COMPLETED:
+                project.status = "deployed"
+                project.active_build_id = result.id
+            elif result.status == BuildStatus.AWAITING_APPROVAL:
+                # Paused for human approval — keep it "building", not failed.
+                project.status = "building"
+            else:
+                project.status = "failed"
             await project_repo.update(project)
 
     except Exception as e:
@@ -700,3 +719,331 @@ async def rebuild(
         "status_url": f"/v1/builds/{child.id}",
         "logs_url": f"/v1/builds/{child.id}/logs",
     }
+
+
+# ────────────────────────────────────────────────────
+# P5: Template / recipe gallery
+# ────────────────────────────────────────────────────
+
+
+@router.get("/templates")
+async def list_templates(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    q: Optional[str] = Query(None, description="Free-text search"),
+):
+    """List curated, one-click system recipes."""
+    from genesis.templates import list_recipes, list_categories
+
+    recipes = list_recipes(category=category, q=q)
+    return {
+        "items": [r.to_dict() for r in recipes],
+        "total": len(recipes),
+        "categories": list_categories(),
+    }
+
+
+@router.get("/templates/categories")
+async def template_categories():
+    """List distinct template categories."""
+    from genesis.templates import list_categories
+
+    return {"categories": list_categories()}
+
+
+@router.get("/templates/{template_id}")
+async def get_template(template_id: str):
+    """Fetch a single recipe by id."""
+    from genesis.templates import get_recipe
+
+    recipe = get_recipe(template_id)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return recipe.to_dict()
+
+
+# ────────────────────────────────────────────────────
+# P5: One-click deployment package
+# ────────────────────────────────────────────────────
+
+
+@router.get("/builds/{build_id}/deploy-package")
+async def get_deploy_package(
+    build_id: str,
+    topology: str = Query("router", description="Topology label for the guide"),
+    project_name: Optional[str] = Query(None, description="Override project name"),
+    allow_partial: bool = Query(
+        False, description="Skip invalid agents instead of erroring"
+    ),
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Generate a ready-to-run deployment package (Docker, Azure, K8s, local).
+
+    Reconstructs the agents from build artifacts and produces step-by-step
+    guides the user can follow to run the system in their own environment.
+    """
+    from genesis.deployment.guides import DeploymentGuideGenerator
+    from genesis.orchestrator.deploy_finalize import reconstruct_agents
+
+    build = await build_repo.get(build_id)
+    if not build or not build.artifacts:
+        raise HTTPException(status_code=404, detail="No artifacts available")
+
+    agent_dicts = build.artifacts.get("agents", [])
+    if not agent_dicts:
+        raise HTTPException(status_code=404, detail="No agents in this build")
+
+    try:
+        agents = reconstruct_agents(agent_dicts, allow_partial=allow_partial)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not agents:
+        raise HTTPException(status_code=422, detail="No valid agents to package")
+
+    name = project_name or f"genesis-{build_id[:8]}"
+    package = DeploymentGuideGenerator().generate(
+        agents, project_name=name, topology=topology
+    )
+    return package.to_dict()
+
+
+# ────────────────────────────────────────────────────
+# P5: Versioning + rollback
+# ────────────────────────────────────────────────────
+
+
+@router.get("/projects/{project_id}/versions")
+async def list_project_versions(
+    project_id: str,
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """List a project's builds as versions (v1..vN), marking the active one."""
+    project = await project_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    builds = await build_repo.list_by_project(project_id)
+    # list_by_project returns newest-first; number oldest→newest for stable vN.
+    ordered = sorted(builds, key=lambda b: b.created_at)
+    active_id = project.active_build_id
+
+    versions = []
+    for idx, b in enumerate(ordered, start=1):
+        deployment = (b.artifacts or {}).get("deployment") if b.artifacts else None
+        versions.append({
+            "version": f"v{idx}",
+            "build_id": b.id,
+            "status": b.status.value,
+            "is_active": b.id == active_id,
+            "is_deployable": bool((b.artifacts or {}).get("agents")),
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "endpoint_url": deployment.get("endpoint_url") if deployment else None,
+            "parent_build_id": b.parent_build_id,
+        })
+
+    return {
+        "project_id": project_id,
+        "active_build_id": active_id,
+        "total": len(versions),
+        "versions": versions,
+    }
+
+
+class RollbackRequest(BaseModel):
+    """Re-deploy a prior build and point live traffic at it."""
+
+    build_id: str = Field(..., min_length=1)
+
+
+@router.post("/projects/{project_id}/rollback", status_code=202)
+async def rollback_project(
+    project_id: str,
+    body: RollbackRequest,
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    build_repo: BuildRepository = Depends(get_build_repo),
+    _: Principal = Depends(require_admin),
+):
+    """Roll a project back to a previous deployable build.
+
+    Re-runs DEPLOY for the target build (admin-only) and flips the project's
+    active build pointer. The target build must belong to the project and have
+    deployable agent artifacts.
+    """
+    from genesis.orchestrator.deploy_finalize import finalize_deploy, reconstruct_agents
+
+    project = await project_repo.get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    target_build = await build_repo.get(body.build_id)
+    if not target_build or target_build.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Build not found in project")
+
+    agent_dicts = (target_build.artifacts or {}).get("agents", [])
+    if not agent_dicts:
+        raise HTTPException(
+            status_code=409, detail="Target build has no deployable agents"
+        )
+
+    try:
+        agents = reconstruct_agents(agent_dicts)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    target = get_deployment_target()
+    try:
+        await finalize_deploy(
+            target_build,
+            agents,
+            target,
+            build_repo,
+            project_repo,
+            decrypt=decrypt_config_secrets,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Rollback deploy failed for project %s", project_id)
+        raise HTTPException(status_code=502, detail=f"Rollback failed: {exc}") from exc
+
+    return {
+        "project_id": project_id,
+        "active_build_id": target_build.id,
+        "status": "deployed",
+        "endpoint_url": (target_build.artifacts or {})
+        .get("deployment", {})
+        .get("endpoint_url"),
+    }
+
+
+# ────────────────────────────────────────────────────
+# P5: Human-in-the-loop approval gate
+# ────────────────────────────────────────────────────
+
+
+class ApprovalRequest(BaseModel):
+    """Approve or reject a paused build."""
+
+    approver: Optional[str] = Field(None, max_length=200)
+    reason: Optional[str] = Field(None, max_length=2000)
+
+
+@router.get("/builds/{build_id}/approval")
+async def get_build_approval(
+    build_id: str,
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Inspect the approval state of a build."""
+    build = await build_repo.get(build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+    decision = (build.artifacts or {}).get("approval")
+    return {
+        "build_id": build.id,
+        "status": build.status.value,
+        "is_paused": build.is_paused,
+        "requires_approval": bool((build.target_config or {}).get("require_approval")),
+        "decision": decision,
+    }
+
+
+@router.post("/builds/{build_id}/approve", status_code=202)
+async def approve_build(
+    build_id: str,
+    body: ApprovalRequest,
+    principal: Principal = Depends(require_admin),
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Approve a paused build and finish deploying it (admin-only).
+
+    Idempotency derives from build status: approval is only valid while the
+    build is AWAITING_APPROVAL; any other state returns 409.
+    """
+    from genesis.orchestrator.deploy_finalize import finalize_deploy, reconstruct_agents
+
+    build = await build_repo.get(build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+    if not build.is_paused:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Build is not awaiting approval (status={build.status.value}).",
+        )
+
+    agent_dicts = (build.artifacts or {}).get("agents", [])
+    if not agent_dicts:
+        raise HTTPException(status_code=409, detail="Paused build has no agents")
+    try:
+        agents = reconstruct_agents(agent_dicts)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Record the decision in artifacts before deploying.
+    artifacts = dict(build.artifacts or {})
+    artifacts["approval"] = {
+        "approved": True,
+        "approver": body.approver or principal.key_id,
+        "reason": body.reason,
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    build.artifacts = artifacts
+
+    target = get_deployment_target()
+    try:
+        await finalize_deploy(
+            build,
+            agents,
+            target,
+            build_repo,
+            project_repo,
+            decrypt=decrypt_config_secrets,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Approval deploy failed for build %s", build_id)
+        raise HTTPException(status_code=502, detail=f"Deploy failed: {exc}") from exc
+
+    return {
+        "build_id": build.id,
+        "status": build.status.value,
+        "endpoint_url": (build.artifacts or {})
+        .get("deployment", {})
+        .get("endpoint_url"),
+    }
+
+
+@router.post("/builds/{build_id}/reject", status_code=202)
+async def reject_build(
+    build_id: str,
+    body: ApprovalRequest,
+    principal: Principal = Depends(require_admin),
+    project_repo: ProjectRepository = Depends(get_project_repo),
+    build_repo: BuildRepository = Depends(get_build_repo),
+):
+    """Reject a paused build, marking it FAILED (admin-only)."""
+    build = await build_repo.get(build_id)
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+    if not build.is_paused:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Build is not awaiting approval (status={build.status.value}).",
+        )
+
+    artifacts = dict(build.artifacts or {})
+    artifacts["approval"] = {
+        "approved": False,
+        "approver": body.approver or principal.key_id,
+        "reason": body.reason,
+        "decided_at": datetime.now(timezone.utc).isoformat(),
+    }
+    build.artifacts = artifacts
+    build.status = BuildStatus.FAILED
+    build.error = "Rejected by approver"
+    build.completed_at = datetime.now(timezone.utc)
+    await build_repo.update(build)
+
+    project = await project_repo.get(build.project_id)
+    if project:
+        project.status = "failed"
+        await project_repo.update(project)
+
+    return {"build_id": build.id, "status": build.status.value}

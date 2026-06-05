@@ -23,6 +23,7 @@ class ProjectRepository:
             status=project.status.value,
             build_count=project.build_count,
             last_build_id=project.last_build_id,
+            active_build_id=project.active_build_id,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -53,6 +54,7 @@ class ProjectRepository:
         record.status = getattr(project.status, "value", project.status)
         record.build_count = project.build_count
         record.last_build_id = project.last_build_id
+        record.active_build_id = project.active_build_id
         record.updated_at = datetime.now(timezone.utc)
         self.session.commit()
         project.updated_at = record.updated_at
@@ -75,6 +77,7 @@ class ProjectRepository:
             status=record.status,
             build_count=record.build_count,
             last_build_id=record.last_build_id,
+            active_build_id=getattr(record, "active_build_id", None),
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

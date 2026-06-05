@@ -22,6 +22,7 @@ from genesis.pipeline.test import TestStage as TestPipelineStage
 from genesis.runtime.sandbox import AgentRuntime
 from genesis.pipeline.verify import verify_agents
 from genesis.pipeline.deploy import DeployStage
+from genesis.orchestrator.deploy_finalize import deployment_artifact
 from genesis.storage.repository import ProjectRepository, BuildRepository
 
 logger = logging.getLogger(__name__)
@@ -149,15 +150,23 @@ class Orchestrator:
             artifacts["verification"] = verification
             logger.info("Verification complete — score=%.2f", verification.get("score", 0))
 
+            # --- Human-in-the-loop approval gate (optional) ---
+            # When the target config opts in, pause exactly once before deploy.
+            # Build status itself is the gate (no separate store): artifacts are
+            # persisted so the agents can be reconstructed and deployed when the
+            # build is approved out-of-band via the API.
+            if (build.target_config or {}).get("require_approval"):
+                build.artifacts = artifacts
+                build.stage = PipelineStage.DEPLOY
+                build.status = BuildStatus.AWAITING_APPROVAL
+                build.stage_progress = 0.8
+                await self._persist(build)
+                logger.info("Pipeline paused for approval — build=%s", build.id)
+                return build
+
             # --- Stage 5: DEPLOY ---
             deployment = await self._run_deploy(build, agents)
-            artifacts["deployment"] = {
-                "deployment_id": deployment.deployment_id,
-                "endpoint_url": deployment.endpoint_url,
-                "status": deployment.status,
-                "agent_count": deployment.agent_count,
-                "metadata": deployment.metadata,
-            }
+            artifacts["deployment"] = deployment_artifact(deployment)
 
             # --- Success ---
             build.artifacts = artifacts

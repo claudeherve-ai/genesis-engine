@@ -102,7 +102,7 @@ class Build:
             response.raise_for_status()
             data = response.json()
 
-            if data["status"] in ("completed", "failed"):
+            if data["status"] in ("completed", "failed", "awaiting_approval"):
                 artifacts = data.get("artifacts", {}) or {}
                 test_results = data.get("test_results", {}) or {}
                 return BuildResult(
